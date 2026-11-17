@@ -47,7 +47,7 @@ Une source de vérité, des moteurs branchés dessus :
 │                         preuve par paliers (hôte, QEMU, machine)
 ├── DESIGN.md            contrat visuel par défaut de toute UI
 ├── skills/              202 skills (frontmatter name+description ≤1024)
-├── agents/              5 sous-agents lecture seule
+├── agents/              5 sous-agents lecture seule (sans shell)
 ├── hooks/dispatch.py    ENTRÉE UNIQUE de tous les hooks
 ├── verifier             contrôle la config entière
 └── memory/              faits (jamais de règles) — privée, non publiée
@@ -58,20 +58,25 @@ Une source de vérité, des moteurs branchés dessus :
 
 | Événement | Contrôle | Effet |
 |---|---|---|
-| `PreToolUse` | garde : secrets, `rm` récursif, écriture disque/firmware, force-push | `deny` ou `ask` **avant** l'exécution |
-| `PostToolUse` (écritures) | shellcheck, checkbashisms, shfmt/ruff, scan cyber | blocage du tour si échec |
-| `Stop` | scan cyber, tests de régression, oracle, verifier de config | la main ne revient pas tant qu'un contrôle échoue |
-| `SessionStart` / `UserPromptSubmit` | état de session, déclencheurs ponctuels | nettoyage, aiguillage |
+| `PreToolUse` | garde : secrets (chemins bruts **et résolus**, catalogue étendu), `rm` récursif, écriture disque/firmware, force-push, marqueurs de désactivation, verrou d'écrivain du dépôt | `deny` ou `ask` **avant** l'exécution |
+| `PostToolUse` (écritures) | shellcheck, checkbashisms, shfmt/ruff, scan cyber | signalé au tour ; les échecs de qualité **tiennent le Stop** jusqu'à correction |
+| `Stop` | scan cyber, gitleaks sur les projets modifiés, tests de régression, oracle, verifier de config, état du harnais (dégradation, marque d'interruption, verrous) | la main ne revient pas tant qu'un contrôle échoue |
+| `SessionStart` / `UserPromptSubmit` | état de session, relecture de l'enregistrement moteur, déclencheurs ponctuels | nettoyage, aiguillage, alerte de dégradation |
 
 **Sous-agents.** Les 5 agents (`architecte`, `auditeur-securite`,
-`chercheur`, `explorateur`, `relecteur`) sont lecture seule : ils
-rendent un rapport (≤ 2 000 tokens) que le fil principal revérifie avec
-une preuve neuve. Un seul écrivain par dépôt, jamais deux.
+`chercheur`, `explorateur`, `relecteur`) sont lecture seule **technique** :
+sans shell (Read, Grep, Glob — web pour le chercheur), liste d'outils
+imposée par le moteur et vérifiée par le verifier. Ils rendent un
+rapport (≤ 2 000 tokens) que le fil principal revérifie avec une preuve
+neuve. Un seul écrivain par dépôt, jamais deux.
 
-**Un moteur par copie.** Chaque moteur tient sa copie du harnais
-(clonée via git) et exporte `AGENT_CONFIG_ROOT` vers sa racine ; les
-copies se synchronisent par le dépôt git amont. Deux moteurs sur une
-même copie = deux écrivains = interdit (et détecté, voir résultats).
+**Un moteur par copie, un écrivain par dépôt.** Chaque moteur tient sa
+copie du harnais (clonée via git) et exporte `AGENT_CONFIG_ROOT` vers sa
+racine ; les copies se synchronisent par le dépôt git amont. Un verrou
+d'écrivain par dépôt (session, expiration 6 h, reprise des verrous
+morts) refuse l'écriture d'une session sur un dépôt déjà tenu par une
+autre. Deux moteurs sur une même copie = deux écrivains = interdit (et
+détecté).
 
 **Budget de contexte.** Le listing des skills est mesuré par le
 verifier (33 318 caractères pour 202 skills, plafond 230 000) : la
@@ -342,7 +347,7 @@ chaque passage du verifier.
 | Contrôle | Durée |
 |---|---|
 | Suite des hooks (`verify.py`, 90 cas) | 31,7 s |
-| Tests du verifier (192 cas privés, 187 publics) | ~2 s |
+| Tests du verifier (194 cas privés, 189 publics) | ~2 s |
 | gitleaks | 0,9 s |
 | semgrep | 3,5 s |
 | ruff, shellcheck, checkbashisms | < 1 s chacun |
