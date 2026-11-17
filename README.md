@@ -80,9 +80,9 @@ d'une session sur un dépôt déjà tenu par une autre. Deux moteurs sur une mê
 détecté).
 
 **Budget de contexte.** Le listing des skills est mesuré par le
-verifier (plafond 230 000 caractères — 33 318 pour les 202 skills de
-l'auteur) : la découverte ne peut pas silencieusement déborder le
-contexte.
+verifier (plafond 230 000 caractères ; les dix skills publiés en
+occupent une fraction infime) : la découverte ne peut pas
+silencieusement déborder le contexte.
 
 **Dix skills de méthode** — la discipline de l'agent lui-même, pas
 les outils métier : `pratiques-dev-senior` (niveau senior, PERMANENT),
@@ -93,8 +93,8 @@ doctrine de test et son exécution), `validation-gate` et
 `justifier-choix-techniques` (un document par choix, alternative
 rejetée écrite), `pratiques-git-github` (hygiène des commits, zéro
 trace d'outil), `multi-agent-orchestration` (un seul écrivain, les
-autres rendent un rapport). Les ~190 autres skills de l'auteur —
-piles métier et outillage de travail — ne sont pas publiés.
+autres rendent un rapport). Les autres skills de l'auteur — piles
+métier et outillage de travail — ne sont pas publiés.
 
 ## Limites du système
 
@@ -287,8 +287,8 @@ Le protocole parlé par `dispatch.py` : JSON sur l'entrée standard,
 sortie JSON (`decision`, `permissionDecision`, `additionalContext`) ou
 code de sortie (`2` = blocage).
 
-**Contenu volontairement absent** de ce dépôt : les ~190 skills
-métier de l'auteur (outils de travail personnels), `memory/`,
+**Contenu volontairement absent** de ce dépôt : les autres skills
+de l'auteur (outils métier de travail personnel), `memory/`,
 `BRAIN.md`, `HISTORIQUE.md`, `docs/justifications/`, `archives/` —
 outils, données personnelles, état du poste et justifications internes
 ne se publient pas. Seul le cerveau agentique — règles, garde-fous,
@@ -355,9 +355,10 @@ qu'il voit.
 Observations d'usage réel, pas un benchmark contrôlé.
 
 **Terrain.** Un mois d'usage quotidien en développement personnel :
-248 sessions réparties sur 33 projets. 202 skills actifs, listing
-mesuré à 33 318 caractères — 15 % du plafond de 230 000, contrôlé à
-chaque passage du verifier.
+248 sessions réparties sur 33 projets. Les dix skills de méthode
+publiés ici sont extraits d'une copie de travail bien plus fournie ;
+dans tous les cas le listing est mesuré à chaque passage du verifier
+et reste largement sous le plafond de 230 000 caractères.
 
 **Ce qui se passe en développement, tour après tour.**
 
@@ -374,8 +375,8 @@ chaque passage du verifier.
   rendu de la main. Quand la config du harnais a changé pendant le
   tour, le verifier `--rapide` s'ajoute (~2 min).
 - **Ce que ça coûte** : ~2 min de verifier occasionnellement au Stop,
-  moins d'une seconde par appel d'outil, 33 318 caractères de listing
-  dans le contexte.
+  moins d'une seconde par appel d'outil, un listing de skills très
+  en dessous du plafond.
 
 **Mesures des contrôles** (dépôt complet, machine de dev) :
 
