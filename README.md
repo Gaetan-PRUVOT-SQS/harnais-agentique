@@ -1,251 +1,248 @@
 # Harnais agentique
 
-Un harnais de travail pour agents de code : règles permanentes,
-garde-fous exécutés en hooks, dix skills de méthode, 5 sous-agents en
-lecture seule et un verifier qui contrôle l'ensemble. Conçu pour qu'un agent
-travaille en mode automatisé sans supervision tour par tour : ce qu'il
-affirme est prouvé, ce qui est dangereux est intercepté avant
-d'exécuter, ce qui est livré est re-vérifié avant de rendre la main.
+English · [Français](README.fr.md)
 
-## Le problème traité
+A working harness for coding agents: permanent rules, guardrails executed
+as hooks, ten method skills, 5 read-only subagents and a verifier that
+checks the whole thing. Built so that an agent can work in automated mode
+without turn-by-turn supervision: what it claims is proven, what is
+dangerous is intercepted before it runs, and what is delivered is
+re-checked before handover.
 
-Un agent de code laissé en autonomie échoue de façon répétée et
-prévisible :
+## The problem addressed
 
-- il **raconte au lieu de prouver** : « les tests passent » sans sortie
-  relue, « corrigé » sans diff vérifié ;
-- il **touche des secrets** (« j'ai juste regardé le `.env` ») et peut
-  les recopier dans un livrable ;
-- il lance des **commandes irréversibles** (`rm -rf`, écriture disque,
-  flash firmware, `git reset --hard`) sans comprendre la portée ;
-- il **dérive de ses règles** au fil du contexte : les consignes du
-  premier tour ne survivent pas à la dixième fichier ;
-- à plusieurs agents, **ils écrivent en parallèle** sur les mêmes
-  fichiers et se corrigent mutuellement en boucle.
+A coding agent left in autonomy fails repeatedly and predictably:
 
-Le problème traité : **déléguer du travail réel à un agent, en mode
-automatisé (intervention minimale), sans perdre ni les secrets, ni les
-données locales, ni l'intégrité du dépôt, ni la vérité des annonces.**
-La réponse n'est pas un meilleur prompt : c'est un contrat comportemental
-court (AGENTS.md) **renforcé par des contrôles machine** que l'agent ne
-peut pas contourner parce qu'ils ne s'exécutent pas en lui.
+- it **narrates instead of proving**: "the tests pass" with no output
+  read back, "fixed" with no diff checked;
+- it **touches secrets** ("I only looked at the `.env`") and may copy
+  them into a deliverable;
+- it runs **irreversible commands** (`rm -rf`, disk writes, firmware
+  flash, `git reset --hard`) without understanding the scope;
+- it **drifts from its rules** as context grows: the instructions of the
+  first turn do not survive the tenth file;
+- with several agents, **they write in parallel** to the same files and
+  correct each other in loops.
 
-## Fonctionnement architectural
+The problem addressed: **delegating real work to an agent, in automated
+mode (minimal intervention), without losing secrets, local data,
+repository integrity, or the truth of the announcements.** The answer is
+not a better prompt: it is a short behavioral contract (AGENTS.md)
+**reinforced by machine checks** the agent cannot bypass because they do
+not run inside it.
 
-Une source de vérité, des moteurs branchés dessus :
+## Architectural design
+
+One source of truth, engines wired to it:
 
 ```
-            ┌───────────────── moteur A (ZCode etc) ─────────────────┐
-            │  instructions ← lien AGENTS.md                      │
-            │  skills/agents ← liens symboliques                 │
-            │  événements → hooks enregistrés chez le moteur     │
-            └──────────────────────────┬──────────────────────────┘
-                                       │ AGENT_CONFIG_ROOT=<copie du harnais>
-~/.agents (une copie par moteur)       ▼
-├── AGENTS.md            règles permanentes : la seule source des règles
-├── regles/bas-niveau.md règles OS/noyau : spec matérielle citée,
-│                         preuve par paliers (hôte, QEMU, machine)
-├── DESIGN.md            contrat visuel par défaut de toute UI
-├── skills/              10 skills de méthode (frontmatter name + description)
-├── agents/              5 sous-agents lecture seule (sans shell)
-├── hooks/dispatch.py    ENTRÉE UNIQUE de tous les hooks
-└── verifier             contrôle la config entière
+            ┌───────────────── engine A (ZCode etc) ─────────────────┐
+            │  instructions ← AGENTS.md link                       │
+            │  skills/agents ← symbolic links                      │
+            │  events → hooks registered at the engine             │
+            └──────────────────────────┬───────────────────────────┘
+                                       │ AGENT_CONFIG_ROOT=<copy of the harness>
+~/.agents (one copy per engine)        ▼
+├── AGENTS.md            permanent rules: the single source of rules
+├── regles/bas-niveau.md OS/kernel rules: hardware spec cited,
+│                         proof by steps (host, QEMU, machine)
+├── DESIGN.md            default visual contract for any UI
+├── skills/              10 method skills (frontmatter name + description)
+├── agents/              5 read-only subagents (no shell)
+├── hooks/dispatch.py    SINGLE ENTRY POINT of all hooks
+└── verifier             checks the whole config
 ```
-(mémoire du harnais, historique et justifications : chez l'auteur,
-jamais publiés)
+(harness memory, history and justifications: with the author, never
+published)
 
-**Cycle d'un tour.** Le moteur déclenche les hooks ; `dispatch.py`
-(traduit au passage les noms d'outils du moteur hôte) route :
+**Cycle of a turn.** The engine triggers the hooks; `dispatch.py`
+(translating the host engine's tool names along the way) routes:
 
-| Événement | Contrôle | Effet |
+| Event | Check | Effect |
 |---|---|---|
-| `PreToolUse` | garde : secrets (chemins bruts **et résolus**, catalogue étendu), `rm` récursif, écriture disque/firmware, force-push, marqueurs de désactivation, verrou d'écrivain du dépôt | `deny` ou `ask` **avant** l'exécution |
-| `PostToolUse` (écritures) | shellcheck, checkbashisms, shfmt/ruff, scan cyber | signalé au tour ; les échecs de qualité **tiennent le Stop** jusqu'à correction |
-| `Stop` | scan cyber, gitleaks et semgrep sur les projets modifiés, tests de régression, oracle, verifier de config, état du harnais (dégradation, marque d'interruption, verrous) | la main ne revient pas tant qu'un contrôle échoue |
-| `SessionStart` / `UserPromptSubmit` | état de session, relecture de l'enregistrement moteur, battement de cœur des verrous, déclencheurs ponctuels | nettoyage, aiguillage, alerte de dégradation |
+| `PreToolUse` | guard: secrets (raw **and resolved** paths, extended catalog), recursive `rm`, disk/firmware writes, force-push, disable markers, repository writer lock | `deny` or `ask` **before** execution |
+| `PostToolUse` (writes) | shellcheck, checkbashisms, shfmt/ruff, cyber scan | reported during the turn; quality failures **hold the Stop** until fixed |
+| `Stop` | cyber scan, gitleaks and semgrep on modified projects, regression tests, oracle, config verifier, harness state (degradation, interruption mark, locks) | handover does not happen while a check fails |
+| `SessionStart` / `UserPromptSubmit` | session state, re-reading of the engine record, lock heartbeat, one-shot triggers | cleanup, routing, degradation alert |
 
-**Sous-agents.** Les 5 agents (`architecte`, `auditeur-securite`,
-`chercheur`, `explorateur`, `relecteur`) sont lecture seule **technique** :
-sans shell (Read, Grep, Glob, web pour le chercheur), liste d'outils
-imposée par le moteur et vérifiée par le verifier. Ils rendent un
-rapport (≤ 2 000 tokens) que le fil principal revérifie avec une preuve
-neuve. Un seul écrivain par dépôt, jamais deux.
+**Subagents.** The 5 agents (`architecte`, `auditeur-securite`,
+`chercheur`, `explorateur`, `relecteur`) are read-only at the
+**technical** level: no shell (Read, Grep, Glob, web for the
+`chercheur`), tool list imposed by the engine and checked by the
+verifier. They return a report (≤ 2,000 tokens) that the main thread
+re-checks with fresh evidence. One writer per repository, never two.
 
-**Un moteur par copie, un écrivain par dépôt.** Chaque moteur tient sa
-copie du harnais (clonée via git) et exporte `AGENT_CONFIG_ROOT` vers sa
-racine ; les copies se synchronisent par le dépôt git amont. Un verrou
-d'écrivain par dépôt (session, expiration 6 h, reprise des verrous
-morts, rafraîchis à chaque tour du propriétaire) refuse l'écriture
-d'une session sur un dépôt déjà tenu par une autre. Deux moteurs sur une même copie = deux écrivains = interdit (et
-détecté).
+**One engine per copy, one writer per repository.** Each engine holds
+its own copy of the harness (cloned through git) and exports
+`AGENT_CONFIG_ROOT` to its root; copies synchronize through the upstream
+git repository. A per-repository writer lock (session, 6 h expiry,
+dead-lock takeover, refreshed at each owner turn) refuses a write from a
+session on a repository already held by another. Two engines on the same
+copy = two writers = forbidden (and detected).
 
-**Budget de contexte.** Le listing des skills est mesuré par le
-verifier (plafond 230 000 caractères ; les dix skills publiés en
-occupent une fraction infime) : la découverte ne peut pas
-silencieusement déborder le contexte.
+**Context budget.** The skills listing is measured by the verifier
+(ceiling 230,000 characters; the ten published skills take a tiny
+fraction of it): discovery cannot silently overflow the context.
 
-**Dix skills de méthode** : la discipline de l'agent lui-même, pas
-les outils métier : `pratiques-dev-senior` (niveau senior, PERMANENT),
-`revue-minutieuse` (chaque ligne du changement est exigée par un
-critère), `iso-29119` + `tests-regression-auto` + `tests-locaux` (la
-doctrine de test et son exécution), `validation-gate` et
-`revue-validation` (le verdict ne tombe que sur preuve),
-`justifier-choix-techniques` (un document par choix, alternative
-rejetée écrite), `pratiques-git-github` (hygiène des commits, zéro
-trace d'outil), `multi-agent-orchestration` (un seul écrivain, les
-autres rendent un rapport). Les autres skills de l'auteur (piles
-métier et outillage de travail) ne sont pas publiés.
+**Ten method skills**: the discipline of the agent itself, not domain
+tools: `pratiques-dev-senior` (senior level, PERMANENT),
+`revue-minutieuse` (every line of a change is required by a criterion),
+`iso-29119` + `tests-regression-auto` + `tests-locaux` (the test
+doctrine and its execution), `validation-gate` and `revue-validation`
+(the verdict only lands on evidence), `justifier-choix-techniques` (one
+document per decision, rejected alternative written down),
+`pratiques-git-github` (commit hygiene, zero tool trace),
+`multi-agent-orchestration` (one writer, the others report). The other
+skills of the author (domain stacks and work tooling) are not published.
 
-## Limites du système
+## System limits
 
-Énoncées franchement :
+Stated frankly:
 
-- **Fail-open à l'appel, fail-closed au tour.** La garantie tient à
-  l'exécution du hook ; deux cas se distinguent. La *dérive
-  d'enregistrement* (hook désactivé, commande modifiée, délai
-  raccourci, événement retiré) est rattrapée deux fois : par le
-  verifier, qui contrôle l'enregistrement exact de chaque événement,
-  et par `dispatch.py`, qui relit l'enregistrement du moteur à chaque
-  tour et tient le `Stop` tant qu'un événement attendu manque. Un hook
-  tué *à l'exécution*, dépassement de délai (garde 10 s, Stop 400 s),
-  crash ou événement jamais déclenché, ne peut pas empêcher l'appel qui
-  l'a déclenché (après expiration, c'est le moteur, pas le harnais,
-  qui décide d'exécuter l'outil) : le garde pose une marque avant son
-  verdict et la lève après ; la marque survit au hook tué et le `Stop`
-  du tour bloque jusqu'à reprise de l'action sous contrôle. Restent
-  hors de portée : l'appel déjà exécuté, et la désactivation totale
-  (aucun hook actif ; seul un passage du verifier la relève). Un
-  moteur sans mécanisme de hooks n'est pas protégé du tout.
-- **Une couche, pas deux.** Côté moteurs qui exposent une liste de
-  permissions (refus statiques), le garde s'y ajoute et le refus tient
-  même hook tué. Côté moteurs qui ne l'exposent pas, le garde est
-  l'unique couche ; en faire une condition d'installation contrôlée
-  par le verifier reste un chantier ouvert.
-- **Le plan de contrôle se protège, sans en être hors de portée.** Les
-  marqueurs de désactivation (`disable-*`) ne peuvent plus être créés,
-  modifiés ni supprimés par l'agent (refus du garde, y compris par
-  redirection shell) ; le verifier liste ceux qui existent et l'auteur
-  les pose à la main. Le reste du harnais reste accessible en écriture
-  à l'agent (c'est voulu, il maintient sa config sur demande) : la
-  séparation complète du contrôleur et du contrôlé demanderait un
-  compte dédié (chantier ouvert).
-- **La lecture seule des sous-agents est technique, pas déclarative.**
-  Les 5 agents n'ont plus de shell : Read, Grep, Glob (web pour le
-  chercheur), liste imposée par le moteur ; le verifier refuse Bash
-  dans un agent. Ce que les agents perdent (git log, find), le brief
-  du fil appelant doit le fournir.
-- **Les suites de test exécutent du code de projet sous le compte de
-  l'utilisateur.** Leur environnement est épuré (plus de variables
-  secrètes ni de sockets d'agents d'authentification) et leur réseau
-  externe est coupé par bwrap (`--unshare-net`, loopback debout : les
-  tests d'intégration locaux passent, bwrap absent = avertissement
-  explicite). Restent : pas de compte dédié, accès disque complet.
-- **Le Stop ne couvre que le lanceur reconnu.** Un projet sans suite de
-  tests reconnue n'a pas de gate de régressions ; l'oracle ne mord que
-  si le projet en fournit un.
-- **Gates typées par langage.** Format et lint ciblent shell et Python
-  (shfmt, shellcheck, checkbashisms, ruff) ; le C dépend des règles du
-  projet (`-Wall -Wextra -Werror`) ; les secrets du projet passent par
-  gitleaks au Stop et le code web/python par semgrep (alertes ERROR,
-  règles python + OWASP top dix) ; les autres langages n'ont pas de
-  SAST dédié.
-- **Le push normal est contractuel.** Force-push est confirmé par le
-  garde ; un push ordinaire n'est pas intercepté mécaniquement : il
-  repose sur la règle « jamais de push sans demande ».
-- **La qualité du raisonnement reste hors de portée machine.** Le
-  harnais contraint les actions et vérifie les artefacts ; il ne prouve
-  pas la pertinence d'une conception. La preuve fraîche est un contrat
-  comportemental pour tout ce qui n'est pas mécaniquement contrôlable.
-- **Coût.** ~2 min de verifier quand la config change (Stop), ~50 Ko de
-  règles chargées à chaque session, un contrôle PreToolUse sur chaque
-  appel d'outil.
-- **Dérive entre copies.** Un moteur par copie protège l'écriture
-  simultanée, renforcée par un verrou d'écrivain par dépôt (refus
-  d'écrire sur un dépôt déjà tenu par une autre session, expiration
-  6 h) ; les copies divergent si on ne synchronise pas par git.
-- **Périmètre moteur.** Le vocabulaire d'événements, les matchers
-  (regex) et les délais dépendent du moteur ; l'adaptation est écrite
-  dans la copie, pas dans le harnais commun.
+- **Fail-open at the call, fail-closed at the turn.** The guarantee
+  rests on the hook running; two cases must be told apart.
+  *Registration drift* (hook disabled, command modified, timeout
+  shortened, event removed) is caught twice: by the verifier, which
+  checks the exact registration of each event, and by `dispatch.py`,
+  which re-reads the engine record at each turn and holds the `Stop` as
+  long as an expected event is missing. A hook killed *at run time*,
+  timeout exceeded (guard 10 s, Stop 400 s), crash, or an event that
+  never fires, cannot prevent the call that triggered it (after the
+  timeout, it is the engine, not the harness, that decides to run the
+  tool): the guard sets a mark before its verdict and lifts it after;
+  the mark survives the killed hook and the turn's `Stop` blocks until
+  the action is resumed under control. Still out of reach: the call
+  already executed, and total deactivation (no hook active at all; only
+  a verifier pass lifts it). An engine without a hook mechanism is not
+  protected at all.
+- **One layer, not two.** On engines that expose a permission list
+  (static denials), the guard adds itself to it and the denial holds
+  even with a killed hook. On engines that do not expose one, the guard
+  is the only layer; making native permissions a verifier-checked
+  install requirement remains open work.
+- **The control plane protects itself, without being out of reach.**
+  The disable markers (`disable-*`) can no longer be created, modified
+  or deleted by the agent (guard denial, including through shell
+  redirection); the verifier lists the existing ones and the author
+  sets them by hand. The rest of the harness stays writable by the
+  agent (by design, it maintains its config on request): full
+  separation of controller and controlled would need a dedicated
+  account (open work).
+- **Subagent read-only is technical, not declarative.** The 5 agents
+  no longer have a shell: Read, Grep, Glob (web for the `chercheur`),
+  list imposed by the engine; the verifier refuses Bash in an agent.
+  What the agents lose (git log, find), the brief from the calling
+  thread must supply.
+- **Test suites run project code under the user account.** Their
+  environment is cleaned (no more secret variables or auth agent
+  sockets) and their external network is cut with bwrap
+  (`--unshare-net`, loopback up: local integration tests pass; bwrap
+  missing = explicit warning). Remaining: no dedicated account, full
+  disk access.
+- **The Stop only covers the recognized runner.** A project without a
+  recognized test suite has no regression gate; the oracle only bites
+  if the project provides one.
+- **Language-typed gates.** Format and lint target shell and Python
+  (shfmt, shellcheck, checkbashisms, ruff); C depends on the project
+  rules (`-Wall -Wextra -Werror`); project secrets go through gitleaks
+  at Stop and web/python code through semgrep (ERROR alerts, python +
+  OWASP top ten rules); other languages have no dedicated SAST.
+- **Normal push is contractual.** Force-push is confirmed by the guard;
+  an ordinary push is not mechanically intercepted: it relies on the
+  rule "no push without a request".
+- **Reasoning quality stays out of machine reach.** The harness
+  constrains actions and checks artifacts; it does not prove the
+  relevance of a design. Fresh evidence is a behavioral contract for
+  everything that cannot be mechanically checked.
+- **Cost.** ~2 min of verifier when the config changes (Stop), ~50 KB
+  of rules loaded at every session, one PreToolUse check per tool call.
+- **Drift between copies.** One engine per copy protects simultaneous
+  writes, reinforced by a per-repository writer lock (refusal to write
+  to a repository already held by another session, 6 h expiry); copies
+  diverge if they are not synchronized through git.
+- **Engine scope.** The event vocabulary, the matchers (regex) and the
+  timeouts depend on the engine; the adaptation is written in the copy,
+  not in the common harness.
 
-**Chantiers ouverts** (assumés, non implémentés) : compte dédié et
-permissions filesystem pour les suites de test (le réseau est déjà
-coupé), permissions natives du moteur comme condition d'installation,
-provenance amont des skills par commit (le lock vérifie déjà
-l'empreinte locale de chaque skill importé), ouverture de fichiers sans
-suivi des liens côté moteur.
+**Open work items** (acknowledged, not implemented): dedicated account
+and filesystem permissions for test suites (the network is already
+cut), native engine permissions as an install requirement, upstream
+provenance of skills per commit (the lock already checks the local
+fingerprint of every imported skill), file opening without symlink
+following at the engine side.
 
-## Modèle de menace
+## Threat model
 
-**Actifs à protéger.** Secrets locaux (`.env`, clés SSH, credentials),
-intégrité du poste (disques, firmware, données hors dépôt), travail
-local non commité, confidentialité de la mémoire du harnais (faits du
-poste et des projets), vérité des livrables (annonces de tests,
-contenu publié).
+**Assets to protect.** Local secrets (`.env`, SSH keys, credentials),
+workstation integrity (disks, firmware, data outside repositories),
+uncommitted local work, confidentiality of the harness memory (facts
+about the machine and the projects), truthfulness of deliverables
+(announced tests, published content).
 
-**Adversaire.** L'agent lui-même, par inadvertance, par injection de
-contenu (un fichier lu qui contient des instructions), ou par deux
-instances concurrentes. **Pas** un attaquant qui contrôle la machine ou
-le moteur : contre lui, le harnais n'offre rien (voir hors modèle).
+**Adversary.** The agent itself, by inadvertence, by content injection
+(a read file containing instructions), or by two concurrent instances.
+**Not** an attacker who controls the machine or the engine: against
+them, the harness offers nothing (see out of model).
 
-| Risque | Interception | Ce qui reste non couvert |
+| Risk | Interception | What remains uncovered |
 |---|---|---|
-| Lecture/exfiltration d'un secret | garde `deny` : chemins bruts **et résolus** (liens symboliques), motifs d'interpréteur (`python -c open(".env")` et proches), catalogue étendu (kube, docker, gcloud, npmrc, pypirc, `.pem` privées) ; gitleaks sur ce qui est écrit | un secret déjà recopié hors motifs ; l'appel exécuté avant un hook tué (la marque d'interruption tient le tour) |
-| Commande irréversible (`rm -rf`, `dd`, firmware) | garde `ask`/`deny` avant exécution | rien, si le hook tourne |
-| Perte de travail local (`git clean`, `reset --hard`) | garde de dépôt : travail non commité détecté | commits déjà poussés de force (confirmé seulement) |
-| Désactivation silencieuse d'un contrôle | marqueurs `disable-*` refusés au garde (création, modification, suppression, redirections) et listés par le verifier ; événement retiré du moteur détecté à chaque tour, `Stop` tenu | désactivation totale : aucun hook ne peut s'exécuter pour le constater |
-| Sous-agent qui écrit malgré « lecture seule » | plus de shell dans les agents (liste d'outils imposée par le moteur) ; le verifier refuse Bash dans un agent | le fil appelant reste écrivain unique, ses propres appels shell restent du ressort du garde |
-| Code de projet exécuté par l'automatisation (suites de test) | environnement épuré (variables secrètes masquées, sockets d'authentification retirées), réseau externe coupé (bwrap) | accès disque complet du compte utilisateur, pas de compte dédié |
-| Secret dans le livrable | gitleaks + semgrep sur le harnais (PostToolUse et Stop) ; gitleaks + semgrep (ERROR, web/python) sur les projets modifiés au Stop | faux négatifs des scanners, SAST limité aux langages couverts |
-| Tests verts annoncés sans preuve | gate Stop relance la suite ; tests sans assertion bloquants ; oracle teste une implémentation fausse ; shellcheck/format tiennent le Stop jusqu'à correction | suites non reconnues par le lanceur |
-| Injection par contenu lu | sous-agents sans shell, revérification par le fil, secrets refusés même « demandés » | instruction bénigne exécutée sans déclencheur (aucune sandbox) |
-| Deux moteurs ou sessions sur un dépôt | un moteur par copie + `AGENT_CONFIG_ROOT` ; verrou d'écrivain par dépôt (refus avant écriture, expiration 6 h) ; divergence détectée par le verifier | écritures par shell brut (le verrou protège les outils d'écriture) ; désynchronisation sans git pull |
+| Reading/exfiltrating a secret | guard `deny`: raw **and resolved** paths (symlinks), interpreter patterns (`python -c open(".env")` and close ones), extended catalog (kube, docker, gcloud, npmrc, pypirc, private `.pem`); gitleaks on what is written | a secret already copied outside the patterns; the call executed before a killed hook (the interruption mark holds the turn) |
+| Irreversible command (`rm -rf`, `dd`, firmware) | guard `ask`/`deny` before execution | nothing, as long as the hook runs |
+| Loss of local work (`git clean`, `reset --hard`) | repository guard: uncommitted work detected | commits already force-pushed (confirmed only) |
+| Silent deactivation of a check | `disable-*` markers refused by the guard (creation, modification, deletion, redirections) and listed by the verifier; an event removed from the engine is detected at every turn, `Stop` held | total deactivation: no hook can run to notice it |
+| A subagent writing despite "read-only" | no more shell in the agents (tool list imposed by the engine); the verifier refuses Bash in an agent | the calling thread stays the single writer; its own shell calls remain under the guard |
+| Project code executed by the automation (test suites) | cleaned environment (secret variables masked, auth sockets removed), external network cut (bwrap) | full disk access of the user account, no dedicated account |
+| Secret in the deliverable | gitleaks + semgrep on the harness (PostToolUse and Stop); gitleaks + semgrep (ERROR, web/python) on modified projects at Stop | scanner false negatives, SAST limited to covered languages |
+| Green tests announced without proof | Stop gate re-runs the suite; tests without assertions block; oracle tests a false implementation; shellcheck/format hold the Stop until fixed | suites not recognized by the runner |
+| Injection through read content | subagents without shell, re-check by the thread, secrets refused even when "requested" | benign instruction executed without a trigger (no sandbox) |
+| Two engines or sessions on a repository | one engine per copy + `AGENT_CONFIG_ROOT`; per-repository writer lock (refusal before writing, 6 h expiry); divergence detected by the verifier | writes through raw shell (the lock protects the writing tools); desynchronization without git pull |
 
-**Hors du modèle** : compromission du moteur ou de l'OS, exfiltration
-réseau par un processus non passé par les hooks, attaques physiques,
-canaux latéraux. Le harnais est un contrôle d'actions de l'agent, pas
-un confinement : il n'y a pas de sandbox.
+**Out of the model**: engine or OS compromise, network exfiltration by
+a process that bypasses the hooks, physical attacks, side channels. The
+harness is a control of the agent's actions, not a confinement: there
+is no sandbox.
 
-## Prérequis
+## Prerequisites
 
-- Linux (écrit et éprouvé sur Ubuntu), `bash`, `git`.
-- Python ≥ 3.11 (`tomllib`), avec `pytest`.
-- Outils des contrôles : `jq`, `ruff`, `shellcheck`, `checkbashisms`
-  (paquet devscripts), `shfmt`, `gitleaks`, `semgrep`. Un outil absent
-  est signalé (« ne pas annoncer de validation ») ; le verifier ne
-  ment jamais sur ce qu'il n'a pas lancé. Au premier passage, semgrep
-  télécharge ses règles (réseau), puis les garde en cache.
-- `bwrap` (bubblewrap), recommandé : coupe le réseau externe des suites
-  de test tout en laissant le système de fichiers et le loopback
-  intacts. Absent, le lanceur prévient et continue sans isolation.
-- Un moteur à hooks (protocole Claude Code : ZCode, Claude Code, Grok)
-  pour la partie dynamique. Les règles, skills et agents s'utilisent
-  sans moteur.
-- ~12 Mo (104 fichiers).
+- Linux (written and tested on Ubuntu), `bash`, `git`.
+- Python ≥ 3.11 (`tomllib`), with `pytest`.
+- Tools of the checks: `jq`, `ruff`, `shellcheck`, `checkbashisms`
+  (devscripts package), `shfmt`, `gitleaks`, `semgrep`. A missing tool
+  is reported ("do not announce a validation"); the verifier never lies
+  about what it did not run. On the first pass, semgrep downloads its
+  rules (network), then keeps them cached.
+- `bwrap` (bubblewrap), recommended: cuts the external network of test
+  suites while leaving the filesystem and loopback intact. Without it,
+  the runner warns and continues without isolation.
+- A hook-capable engine (Claude Code protocol: ZCode, Claude Code,
+  Grok) for the dynamic part. Rules, skills and agents can be used
+  without an engine.
+- ~12 MB (104 files).
 
 ## Installation
 
 ```sh
-git clone <ce dépôt> ~/.agents
-~/.agents/verifier --rapide        # doit finir vert avant de continuer
+git clone <this repository> ~/.agents
+~/.agents/verifier --rapide        # must end green before continuing
 ```
 
-Brancher votre moteur : **un moteur par copie**, jamais deux écrivains
-sur le même dépôt :
+Wire your engine: **one engine per copy**, never two writers on the
+same repository:
 
-**Règles** : lier `AGENTS.md` dans les instructions du moteur.
+**Rules**: link `AGENTS.md` into the engine instructions.
 
-**Skills et agents** : liens symboliques (beaucoup de moteurs
-découvrent `~/.agents/skills` directement) :
+**Skills and agents**: symbolic links (many engines discover
+`~/.agents/skills` directly):
 
 ```sh
-mkdir -p ~/.votremoteur/skills ~/.votremoteur/agents
-for d in ~/.agents/skills/*/; do ln -s "$d" ~/.votremoteur/skills/"$(basename "$d")"; done
-for a in ~/.agents/agents/*.md; do ln -s "$a" ~/.votremoteur/agents/; done
+mkdir -p ~/.yourengine/skills ~/.yourengine/agents
+for d in ~/.agents/skills/*/; do ln -s "$d" ~/.yourengine/skills/"$(basename "$d")"; done
+for a in ~/.agents/agents/*.md; do ln -s "$a" ~/.yourengine/agents/; done
 ```
 
-**Hooks** : enregistrer `dispatch.py` sur les événements, en exportant
-`AGENT_CONFIG_ROOT` vers la racine du harnais. Exemple complet pour un
-moteur au format Claude Code :
+**Hooks**: register `dispatch.py` on the events, exporting
+`AGENT_CONFIG_ROOT` to the harness root. Full example for an engine in
+the Claude Code format:
 
 ```json
 {
@@ -254,28 +251,28 @@ moteur au format Claude Code :
     "events": {
       "SessionStart": [
         { "hooks": [{ "type": "command",
-          "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py SessionStart",
+          "command": "AGENT_CONFIG_ROOT=/home/me/.agents python3 -E -s /home/me/.agents/hooks/dispatch.py SessionStart",
           "timeout": 15 }] }
       ],
       "UserPromptSubmit": [
         { "hooks": [{ "type": "command",
-          "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py UserPromptSubmit",
+          "command": "AGENT_CONFIG_ROOT=/home/me/.agents python3 -E -s /home/me/.agents/hooks/dispatch.py UserPromptSubmit",
           "timeout": 30 }] }
       ],
       "PreToolUse": [
         { "hooks": [{ "type": "command",
-          "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py PreToolUse",
+          "command": "AGENT_CONFIG_ROOT=/home/me/.agents python3 -E -s /home/me/.agents/hooks/dispatch.py PreToolUse",
           "timeout": 10 }] }
       ],
       "PostToolUse": [
         { "matcher": "Write|Edit|MultiEdit|NotebookEdit|ApplyPatch",
           "hooks": [{ "type": "command",
-            "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py PostToolUse",
+            "command": "AGENT_CONFIG_ROOT=/home/me/.agents python3 -E -s /home/me/.agents/hooks/dispatch.py PostToolUse",
             "timeout": 150 }] }
       ],
       "Stop": [
         { "hooks": [{ "type": "command",
-          "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py Stop",
+          "command": "AGENT_CONFIG_ROOT=/home/me/.agents python3 -E -s /home/me/.agents/hooks/dispatch.py Stop",
           "timeout": 400 }] }
       ]
     }
@@ -283,118 +280,114 @@ moteur au format Claude Code :
 }
 ```
 
-Le protocole parlé par `dispatch.py` : JSON sur l'entrée standard,
-sortie JSON (`decision`, `permissionDecision`, `additionalContext`) ou
-code de sortie (`2` = blocage).
+The protocol spoken by `dispatch.py`: JSON on standard input, JSON
+output (`decision`, `permissionDecision`, `additionalContext`) or exit
+code (`2` = block).
 
-**Contenu volontairement absent** de ce dépôt : les autres skills
-de l'auteur (outils métier de travail personnel), `memory/`,
-`BRAIN.md`, `HISTORIQUE.md`, `docs/justifications/`, `archives/` :
-outils, données personnelles, état du poste et justifications internes
-ne se publient pas. Seul le cerveau agentique (règles, garde-fous,
-verifier, agents et méthode) est partagé. La suite de tests
-publique est ajustée en conséquence (tests retirés ou sautés si
-l'outil visé est absent).
+**Content deliberately absent** from this repository: the other skills
+of the author (personal work tools), `memory/`, `BRAIN.md`,
+`HISTORIQUE.md`, `docs/justifications/`, `archives/`: tools, personal
+data, machine state and internal justifications are not published. Only
+the agentic brain (rules, guardrails, verifier, agents and method) is
+shared. The public test suite is adjusted accordingly (tests removed or
+skipped when the target tool is absent).
 
 ## Validation
 
-Quatre étages, tous rejouables :
+Four stages, all replayable:
 
 ```sh
-# 1. La suite du harnais (126 tests) : structure, garde, gates, verifier.
+# 1. The harness suite (126 tests): structure, guard, gates, verifier.
 python3 -m pytest tests/
 
-# 1 bis. La suite des hooks (110 tests) : garde, gates, fail-closed,
-# verrou d'écrivain, marqueurs, liens symboliques, environnement épuré.
+# 1 bis. The hooks suite (110 tests): guard, gates, fail-closed,
+# writer lock, markers, symbolic links, cleaned environment.
 python3 -m pytest hooks/verify.py
 
-# 2. Le verifier complet.
-./verifier                 # ou --rapide (~2 min)
+# 2. The full verifier.
+./verifier                 # or --rapide (~2 min)
 
-# 3. Bout en bout, sur payloads réels :
+# 3. End to end, on real payloads:
 echo '{"tool_name":"Read","tool_input":{"file_path":"'"$HOME"'/.ssh/id_rsa"},"cwd":"'"$HOME"'"}' \
   | AGENT_CONFIG_ROOT="$HOME/.agents" python3 -E -s ~/.agents/hooks/dispatch.py PreToolUse
-# attendu : {"permissionDecision":"deny", ...}
+# expected: {"permissionDecision":"deny", ...}
 
-echo '{"session_id":"essai","stop_hook_active":false}' \
+echo '{"session_id":"test","stop_hook_active":false}' \
   | AGENT_CONFIG_ROOT="$HOME/.agents" python3 -E -s ~/.agents/hooks/dispatch.py Stop
-# attendu : sortie JSON vide, code 0
+# expected: empty JSON output, exit code 0
 ```
 
-Le verifier contrôle : frontmatter et liens des skills et agents,
-budget du listing, hooks en python isolé (`python3 -E -s`, délais
-exacts), refus de secrets, marqueurs de désactivation (`disable-*`),
-empreintes des skills importés (contrôle du lock ; « non lancé » si le
-dépôt n'en publie pas, comme celui-ci), gitleaks, semgrep, ruff,
-shellcheck, checkbashisms, suite pytest. Les contrôles liés au poste
-passent en « non lancés » si le fichier visé est absent : le dépôt est
-vert sur toute machine, sans mentir sur ce qui n'a pas tourné.
+The verifier checks: skill and agent frontmatter and links, listing
+budget, hooks in isolated python (`python3 -E -s`, exact timeouts),
+secret refusals, disable markers (`disable-*`), fingerprints of
+imported skills (lock check; "not run" if the repository publishes
+none, like this one), gitleaks, semgrep, ruff, shellcheck,
+checkbashisms, pytest suite. Machine-bound checks report "not run" when
+the target file is absent: the repository is green on any machine,
+without lying about what did not run.
 
-Un détail de conception : la gate oracle teste volontairement une
-**implémentation fausse** (`hooks/oracle_vide.py`) pour prouver que les
-tests mordent : un test qui ne distingue pas le vrai du faux ne vaut
-rien.
+One design detail: the oracle gate deliberately tests a **false
+implementation** (`hooks/oracle_vide.py`) to prove the tests bite: a
+test that cannot tell true from false is worth nothing.
 
-### 4. Installation vierge, rejouable
+### 4. Clean install, replayable
 
 ```sh
-git clone <ce dépôt> harnais-neuf
-cd harnais-neuf && mkdir home-isole && HOME="$PWD/home-isole" ./verifier --rapide
-# attendu : 0 KO ; les contrôles liés au moteur et à l'outillage local
-# passent en « non lancés » (cinq à la publication : moteur non branché,
-# lock absent, pytest/state selon le poste).
+git clone <this repository> fresh-harness
+cd fresh-harness && mkdir home-isolated && HOME="$PWD/home-isolated" ./verifier --rapide
+# expected: 0 failures; engine-bound and local tooling checks report
+# "not run" (five at publication: engine not wired, lock absent,
+# pytest/state depending on the machine).
 ```
 
-Sur la machine de l'auteur, le moteur vivant est câblé sur une autre
-copie du harnais : les mêmes contrôles y passent KO : le verifier
-compare l'enregistrement du moteur à SA racine, il ne ment pas sur ce
-qu'il voit.
+On the author's machine, the live engine is wired to another copy of
+the harness: the same checks fail there (KO): the verifier compares the
+engine record to ITS root, it does not lie about what it sees.
 
-## Résultats expérimentaux
+## Experimental results
 
-Observations d'usage réel, pas un benchmark contrôlé.
+Observations from real use, not a controlled benchmark.
 
-**Terrain.** Un mois d'usage quotidien en développement personnel :
-248 sessions réparties sur 33 projets. Les dix skills de méthode
-publiés ici sont extraits d'une copie de travail bien plus fournie ;
-dans tous les cas le listing est mesuré à chaque passage du verifier
-et reste largement sous le plafond de 230 000 caractères.
+**Field.** One month of daily use in personal development: 248
+sessions across 33 projects. The ten method skills published here are
+extracted from a much larger working copy; in all cases the listing is
+measured at every verifier pass and stays well below the 230,000
+character ceiling.
 
-**Ce qui se passe en développement, tour après tour.**
+**What happens in development, turn after turn.**
 
-- **Garde `PreToolUse` sur chaque appel d'outil** : réponse < 1 s pour
-  un budget de 10 s. En pratique il laisse passer le travail courant
-  sans friction et intercepte ce qui sort du cadre : lecture d'une
-  clé SSH refusée (`permissionDecision: deny`), confirmation exigée
-  avant `rm` récursif, écriture disque ou force-push.
-- **Gates d'écriture (`PostToolUse`)** : chaque script shell modifié
-  passe shellcheck et checkbashisms (< 1 s), chaque fichier formaté ;
-  un avertissement shellcheck tient le tour jusqu'à correction.
-- **Stop** : la suite de régressions du projet est relancée à chaque
-  fin de tour sur les fichiers touchés ; une régression KO bloque le
-  rendu de la main. Quand la config du harnais a changé pendant le
-  tour, le verifier `--rapide` s'ajoute (~2 min).
-- **Ce que ça coûte** : ~2 min de verifier occasionnellement au Stop,
-  moins d'une seconde par appel d'outil, un listing de skills très
-  en dessous du plafond.
+- **`PreToolUse` guard on every tool call**: response under 1 s for a
+  10 s budget. In practice it lets normal work through without friction
+  and intercepts what falls outside the frame: reading an SSH key
+  denied (`permissionDecision: deny`), confirmation required before a
+  recursive `rm`, a disk write or a force-push.
+- **Write gates (`PostToolUse`)**: every modified shell script goes
+  through shellcheck and checkbashisms (under 1 s), every file is
+  formatted; a shellcheck warning holds the turn until fixed.
+- **Stop**: the project regression suite is re-run at every end of turn
+  on the touched files; a failed regression blocks handover. When the
+  harness config changed during the turn, the `--rapide` verifier is
+  added (~2 min).
+- **What it costs**: ~2 min of verifier occasionally at Stop, under a
+  second per tool call, a skills listing far below the ceiling.
 
-**Mesures des contrôles** (dépôt complet, machine de dev) :
+**Measurements of the checks** (full repository, dev machine):
 
-| Contrôle | Durée |
+| Check | Duration |
 |---|---|
-| Suite des hooks (`verify.py`, 110 cas) | ~104 s |
-| Tests du verifier (194 cas privés, 126 publics) | ~2 s |
-| gitleaks | 0,9 s |
-| semgrep (harnais) / SAST projet au Stop | 3,5 s / ~2 s |
-| ruff, shellcheck, checkbashisms | < 1 s chacun |
-| Verifier `--rapide` complet | ~112 s |
+| Hooks suite (`verify.py`, 110 cases) | ~104 s |
+| Verifier tests (194 private cases, 126 public) | ~2 s |
+| gitleaks | 0.9 s |
+| semgrep (harness) / project SAST at Stop | 3.5 s / ~2 s |
+| ruff, shellcheck, checkbashisms | under 1 s each |
+| Full `--rapide` verifier | ~112 s |
 
-**Ce que ces nombres ne disent pas.** La couverture des gates de
-régressions dépend du lanceur reconnu dans chaque projet ; la part
-comportementale (preuve fraîche, revérification des rapports) est un
-contrat, dont on observe qu'il tient tant que les règles restent
-chargées et courtes ; c'est précisément ce que le verifier budgete.
+**What these numbers do not say.** The coverage of the regression gates
+depends on the runner recognized in each project; the behavioral part
+(fresh evidence, re-checking of reports) is a contract, observed to
+hold as long as the rules stay loaded and short; this is exactly what
+the verifier budgets.
 
-## Licence
+## License
 
-Code du harnais et dix skills de méthode : MIT (voir `LICENSE`).
+Harness code and ten method skills: MIT (see `LICENSE`).
