@@ -2,6 +2,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 RACINE = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'norme-42'
 PHRASE = 'le code C respecte la norme 42, seul le bandeau 42 est exclu'
@@ -11,6 +13,8 @@ FICHIERS = (
     'skills/c-systems/SKILL.md',
     'skills/pratiques-dev-senior/SKILL.md',
 )
+pytestmark = pytest.mark.skipif(not (Path.home() / ".local" / "bin" / "norminette").is_file(), reason="norminette absente")
+
 
 
 def _binaire():

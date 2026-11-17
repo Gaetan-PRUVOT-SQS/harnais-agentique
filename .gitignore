@@ -7,7 +7,6 @@
 /skills-archive/
 /statusline/
 /build/
-.cyber-ignore
 backup-*.tar.zst
 
 # Caches

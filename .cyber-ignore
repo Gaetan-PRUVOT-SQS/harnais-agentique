@@ -1,0 +1,8 @@
+# hooks/verify.py est le harnais. Les motifs (eval, innerHTML, shell_exec)
+# sont des chaînes écrites dans un faux projet pour faire tomber le gate.
+# Elles ne sont pas exécutées.
+hooks/verify.py
+
+# hooks/cyber-scan.sh est le catalogue de motifs. Les chaînes (innerHTML, eval)
+# décrivent ce qu'il faut chercher. Elles ne sont pas exécutées.
+hooks/cyber-scan.sh

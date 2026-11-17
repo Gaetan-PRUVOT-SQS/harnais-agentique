@@ -8,6 +8,9 @@ from pathlib import Path
 import pytest
 
 HOME = Path.home()
+pytestmark = pytest.mark.skipif(
+    not (HOME / ".grok" / "config.toml").is_file() or not (HOME / ".local" / "share" / "mise" / "installs" / "node" / "lts" / "bin" / "rea").exists(),
+    reason="installation REA locale absente")
 CONFIG = HOME / ".grok" / "config.toml"
 GHIDRA = HOME / ".local" / "opt" / "ghidra"
 REA = HOME / ".local" / "share" / "mise" / "installs" / "node" / "lts" / "bin" / "rea"
