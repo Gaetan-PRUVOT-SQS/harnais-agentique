@@ -149,7 +149,7 @@ empreinte).
   harnais contraint les actions et vérifie les artefacts ; il ne prouve
   pas la pertinence d'une conception. La preuve fraîche est un contrat
   comportemental pour tout ce qui n'est pas mécaniquement contrôlable.
-- **Coût.** ~40 s de verifier quand la config change (Stop), ~50 Ko de
+- **Coût.** ~2 min de verifier quand la config change (Stop), ~50 Ko de
   règles chargées à chaque session, un contrôle PreToolUse sur chaque
   appel d'outil.
 - **Dérive entre copies.** Un moteur par copie protège l'écriture
@@ -205,7 +205,11 @@ un confinement — il n'y a pas de sandbox.
 - Outils des contrôles : `jq`, `ruff`, `shellcheck`, `checkbashisms`
   (paquet devscripts), `shfmt`, `gitleaks`, `semgrep`. Un outil absent
   est signalé (« ne pas annoncer de validation ») — le verifier ne
-  ment jamais sur ce qu'il n'a pas lancé.
+  ment jamais sur ce qu'il n'a pas lancé. Au premier passage, semgrep
+  télécharge ses règles (réseau), puis les garde en cache.
+- `bwrap` (bubblewrap), recommandé : coupe le réseau externe des suites
+  de test tout en laissant le système de fichiers et le loopback
+  intacts. Absent, le lanceur prévient et continue sans isolation.
 - Un moteur à hooks (protocole Claude Code : ZCode, Claude Code, Grok)
   pour la partie dynamique. Les règles, skills et agents s'utilisent
   sans moteur.
@@ -319,6 +323,14 @@ Un détail de conception : la gate oracle teste volontairement une
 tests mordent — un test qui ne distingue pas le vrai du faux ne vaut
 rien.
 
+# 4. Installation vierge, rejouable :
+git clone <ce dépôt> harnais-neuf
+cd harnais-neuf && mkdir home-isole && HOME="$PWD/home-isole" ./verifier --rapide
+# attendu : 0 KO ; les contrôles liés au moteur passent en « non lancés ».
+# Sur la machine de l'auteur, si le moteur vivant est câblé sur une autre
+# copie du harnais, ces mêmes contrôles passent KO : le verifier compare
+# l'enregistrement du moteur à SA racine, il ne mente pas sur ce qu'il voit.
+
 ## Résultats expérimentaux
 
 Observations d'usage réel, pas un benchmark contrôlé.
@@ -341,7 +353,7 @@ chaque passage du verifier.
 - **Stop** : la suite de régressions du projet est relancée à chaque
   fin de tour sur les fichiers touchés ; une régression KO bloque le
   rendu de la main. Quand la config du harnais a changé pendant le
-  tour, le verifier `--rapide` s'ajoute (~40 s).
+  tour, le verifier `--rapide` s'ajoute (~2 min).
 - **Ce que ça coûte** : ~40 s de verifier occasionnellement au Stop,
   moins d'une seconde par appel d'outil, 33 318 caractères de listing
   dans le contexte.
@@ -350,12 +362,12 @@ chaque passage du verifier.
 
 | Contrôle | Durée |
 |---|---|
-| Suite des hooks (`verify.py`, 90 cas) | 31,7 s |
+| Suite des hooks (`verify.py`, 110 cas) | ~104 s |
 | Tests du verifier (194 cas privés, 189 publics) | ~2 s |
 | gitleaks | 0,9 s |
-| semgrep | 3,5 s |
+| semgrep (harnais) / SAST projet au Stop | 3,5 s / ~2 s |
 | ruff, shellcheck, checkbashisms | < 1 s chacun |
-| Verifier `--rapide` complet | ~40 s |
+| Verifier `--rapide` complet | ~112 s |
 
 **Ce que ces nombres ne disent pas.** La couverture des gates de
 régressions dépend du lanceur reconnu dans chaque projet ; la part
