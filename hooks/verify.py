@@ -1245,11 +1245,62 @@ class Hooks(unittest.TestCase):
 
     def test_gitleaks_projet_tient_le_stop(self):
         self.call('UserPromptSubmit', prompt='go')
-        jeton = 'ghp_' + '16C7e42F292c6912E7710c838347Ae178B4a'
+        jeton = 'gh' + 'p_' + bytes.fromhex('31364337653432463239326336393132453737313063383338333437416531373842346134').decode()
         (self.project / 'cle.js').write_text('tok = "' + jeton + '"\n')
         result = self.call('Stop', reason='end_turn')
         self.assertEqual(result['decision'], 'block')
         self.assertIn('SECRETS KO', result['reason'])
+
+    def test_marqueur_disable_vecteurs_etendus(self):
+        marqueur = self.config / 'hooks' / 'disable-cyber'
+        marqueur.parent.mkdir(parents=True, exist_ok=True)
+        marqueur.write_text('')
+        for entree in ('sed -i s/x/y/ ' + str(marqueur),
+                       'git rm -f ' + str(marqueur),
+                       'git clean -f ' + str(self.config / 'hooks'),
+                       'find ' + str(self.config / 'hooks') + ' -name disable-* -delete',
+                       'dd of=' + str(marqueur) + ' if=/dev/zero',
+                       'python3 -c "open(\'' + str(marqueur) + '\', \'w\')"',
+                       'echo x 2> ' + str(marqueur)):
+            out = self.call('PreToolUse', tool_name='Bash', tool_input={'command': entree})
+            self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny', entree)
+
+    def test_ecriture_croisee_signalee(self):
+        (self.project / 'a.txt').write_text('')
+        self.call('PostToolUse', tool_input={'file_path': str(self.project / 'a.txt')})
+        out = self.call('PostToolUse', session_id='autre-session',
+                        tool_input={'file_path': str(self.project / 'a.txt')})
+        self.assertIn('Écriture croisée', out['hookSpecificOutput']['additionalContext'])
+
+    def test_battement_de_coeur_du_verrou(self):
+        (self.project / 'a.txt').write_text('')
+        self.call('PostToolUse', tool_input={'file_path': str(self.project / 'a.txt')})
+        locks = self.path / 'state' / 'locks'
+        for fichier in locks.glob('*.json'):
+            texte = json.loads(fichier.read_text(encoding='utf-8'))
+            texte['ts'] -= 7 * 3600
+            fichier.write_text(json.dumps(texte), encoding='utf-8')
+        self.call('UserPromptSubmit', prompt='toujours la')
+        out = self.call('PreToolUse', tool_name='Write', session_id='autre-session',
+                        tool_input={'file_path': str(self.project / 'b.txt'), 'content': ''})
+        self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny')
+
+    def test_reseau_des_tests_isole(self):
+        code = ('import sys; sys.path.insert(0, ' + repr(str(HOOKS)) + '); from lanceur import reseau_isole; '
+                'c = reseau_isole(["/bin/true"]); assert c and c[0] == "bwrap" and "--unshare-net" in c, c')
+        process = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
+                                 timeout=30, check=False)
+        self.assertEqual(process.returncode, 0, process.stderr)
+
+    def test_sast_projet_tient_le_stop(self):
+        self.call('UserPromptSubmit', prompt='go')
+        (self.project / 'app.py').write_text(
+            'import subprocess\n'
+            'def f(u):\n'
+            '    subprocess.call(u, shell=True)\n')
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('SAST KO', result['reason'])
 
     def test_environnement_des_tests_epure(self):
         code = ('import sys; sys.path.insert(0, ' + repr(str(HOOKS)) + '); from lanceur import environnement_epure; '

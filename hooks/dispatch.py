@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parent
 # Ici, seulement ce qui change d'un tour à l'autre (anciens force-*.sh :
 # ~/.agents/archives/hooks-force-20260927 et hooks-mode-20260929).
 PROMPT = ['skill-trigger-sft-dataset']
-STOP = ['gate-cyber-stop', 'gate-secrets-stop', 'gate-regression-stop', 'gate-oracle-stop']
+STOP = ['gate-cyber-stop', 'gate-secrets-stop', 'gate-sast-stop', 'gate-regression-stop', 'gate-oracle-stop']
 OUTILS_MODIFIANTS = ('Write', 'Edit', 'NotebookEdit', 'MultiEdit', 'ApplyPatch')
 VERROU_DUREE = 6 * 3600
 GARDE_INTERROMPUE = ('Le garde a été interrompu avant sa fin (délai dépassé ou arrêt brutal) : '
@@ -207,6 +207,23 @@ def libere_verrous(state, identity):
                 fichier.unlink()
         except (OSError, json.JSONDecodeError):
             continue
+
+
+def rafraichit_verrous(state, identity):
+    """Battement de cœur : une session active garde ses dépôts, l'expiration
+    ne mesure que l'inactivité, pas l'ancienneté du dernier écrit."""
+    try:
+        fichiers = list((state.parent / 'locks').glob('*.json'))
+    except OSError:
+        return
+    for fichier in fichiers:
+        try:
+            donnees = json.loads(fichier.read_text(encoding='utf-8'))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if donnees.get('session') == identity:
+            donnees['ts'] = time.time()
+            fichier.write_text(json.dumps(donnees), encoding='utf-8')
 
 
 def note_qualite(state, chemin, problemes):
@@ -478,6 +495,7 @@ def main():
             if marqueur.is_file():
                 marqueur.unlink()
                 contexts.append(GARDE_INTERROMPUE)
+            rafraichit_verrous(state, identity)
             alerte = harnais_degrade(state, registration_problems())
             if alerte:
                 contexts.append(alerte)
@@ -525,7 +543,13 @@ def main():
                 collect(run('gate-cyber-post', item, env, deadline=deadline))
                 note_qualite(state, path, echecs)
                 if root is not None:
-                    ecrit_vivant(state, root.resolve(), identity)
+                    autre = autre_ecrivain(state, root.resolve(), identity)
+                    if autre:
+                        contexts.append('Écriture croisée sur ' + str(root.resolve())
+                                        + ' : la session ' + autre + ' tient le dépôt (un seul '
+                                          'écrivain, AGENTS.md). Faire écrire la session propriétaire.')
+                    else:
+                        ecrit_vivant(state, root.resolve(), identity)
         elif fin and data.get('reason') == 'end_turn':
             degrade = state / 'harnais-degrade'
             if degrade.is_file():

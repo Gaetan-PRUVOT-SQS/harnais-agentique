@@ -60,7 +60,7 @@ Une source de vérité, des moteurs branchés dessus :
 |---|---|---|
 | `PreToolUse` | garde : secrets (chemins bruts **et résolus**, catalogue étendu), `rm` récursif, écriture disque/firmware, force-push, marqueurs de désactivation, verrou d'écrivain du dépôt | `deny` ou `ask` **avant** l'exécution |
 | `PostToolUse` (écritures) | shellcheck, checkbashisms, shfmt/ruff, scan cyber | signalé au tour ; les échecs de qualité **tiennent le Stop** jusqu'à correction |
-| `Stop` | scan cyber, gitleaks sur les projets modifiés, tests de régression, oracle, verifier de config, état du harnais (dégradation, marque d'interruption, verrous) | la main ne revient pas tant qu'un contrôle échoue |
+| `Stop` | scan cyber, gitleaks et semgrep sur les projets modifiés, tests de régression, oracle, verifier de config, état du harnais (dégradation, marque d'interruption, verrous) | la main ne revient pas tant qu'un contrôle échoue |
 | `SessionStart` / `UserPromptSubmit` | état de session, relecture de l'enregistrement moteur, déclencheurs ponctuels | nettoyage, aiguillage, alerte de dégradation |
 
 **Sous-agents.** Les 5 agents (`architecte`, `auditeur-securite`,
@@ -74,8 +74,8 @@ neuve. Un seul écrivain par dépôt, jamais deux.
 copie du harnais (clonée via git) et exporte `AGENT_CONFIG_ROOT` vers sa
 racine ; les copies se synchronisent par le dépôt git amont. Un verrou
 d'écrivain par dépôt (session, expiration 6 h, reprise des verrous
-morts) refuse l'écriture d'une session sur un dépôt déjà tenu par une
-autre. Deux moteurs sur une même copie = deux écrivains = interdit (et
+morts, rafraîchis à chaque tour du propriétaire) refuse l'écriture
+d'une session sur un dépôt déjà tenu par une autre. Deux moteurs sur une même copie = deux écrivains = interdit (et
 détecté).
 
 **Budget de contexte.** Le listing des skills est mesuré par le
@@ -129,16 +129,19 @@ empreinte).
   du fil appelant doit le fournir.
 - **Les suites de test exécutent du code de projet sous le compte de
   l'utilisateur.** Leur environnement est épuré (plus de variables
-  secrètes ni de sockets d'agents d'authentification), mais il n'y a
-  ni sandbox, ni compte dédié, ni limitation réseau (chantier ouvert).
+  secrètes ni de sockets d'agents d'authentification) et leur réseau
+  externe est coupé par bwrap (`--unshare-net`, loopback debout : les
+  tests d'intégration locaux passent, bwrap absent = avertissement
+  explicite). Restent : pas de compte dédié, accès disque complet.
 - **Le Stop ne couvre que le lanceur reconnu.** Un projet sans suite de
   tests reconnue n'a pas de gate de régressions ; l'oracle ne mord que
   si le projet en fournit un.
 - **Gates typées par langage.** Format et lint ciblent shell et Python
   (shfmt, shellcheck, checkbashisms, ruff) ; le C dépend des règles du
   projet (`-Wall -Wextra -Werror`) ; les secrets du projet passent par
-  gitleaks au Stop ; le SAST complet par projet (semgrep par langage)
-  reste un chantier ouvert.
+  gitleaks au Stop et le code web/python par semgrep (alertes ERROR,
+  règles python + OWASP top dix) ; les autres langages n'ont pas de
+  SAST dédié.
 - **Le push normal est contractuel.** Force-push est confirmé par le
   garde ; un push ordinaire n'est pas intercepté mécaniquement — il
   repose sur la règle « jamais de push sans demande ».
@@ -157,11 +160,12 @@ empreinte).
   (regex) et les délais dépendent du moteur ; l'adaptation est écrite
   dans la copie, pas dans le harnais commun.
 
-**Chantiers ouverts** (assumés, non implémentés) : sandbox complète
-des suites de test (compte dédié, réseau), SAST par projet, permissions
-natives du moteur comme condition d'installation, provenance amont des
-skills par commit (le lock vérifie déjà l'empreinte locale de chaque
-skill importé), ouverture de fichiers sans suivi des liens côté moteur.
+**Chantiers ouverts** (assumés, non implémentés) : compte dédié et
+permissions filesystem pour les suites de test (le réseau est déjà
+coupé), permissions natives du moteur comme condition d'installation,
+provenance amont des skills par commit (le lock vérifie déjà
+l'empreinte locale de chaque skill importé), ouverture de fichiers sans
+suivi des liens côté moteur.
 
 ## Modèle de menace
 
@@ -183,8 +187,8 @@ le moteur : contre lui, le harnais n'offre rien (voir hors modèle).
 | Perte de travail local (`git clean`, `reset --hard`) | garde de dépôt : travail non commité détecté | commits déjà poussés de force (confirmé seulement) |
 | Désactivation silencieuse d'un contrôle | marqueurs `disable-*` refusés au garde (création, modification, suppression, redirections) et listés par le verifier ; événement retiré du moteur détecté à chaque tour, `Stop` tenu | désactivation totale : aucun hook ne peut s'exécuter pour le constater |
 | Sous-agent qui écrit malgré « lecture seule » | plus de shell dans les agents (liste d'outils imposée par le moteur) ; le verifier refuse Bash dans un agent | le fil appelant reste écrivain unique, ses propres appels shell restent du ressort du garde |
-| Code de projet exécuté par l'automatisation (suites de test) | environnement épuré : variables secrètes masquées, sockets des agents d'authentification retirées | pas de sandbox : accès disque et réseau du compte utilisateur |
-| Secret dans le livrable | gitleaks + semgrep sur le harnais (PostToolUse et Stop) ; gitleaks sur les projets modifiés au Stop | faux négatifs des scanners |
+| Code de projet exécuté par l'automatisation (suites de test) | environnement épuré (variables secrètes masquées, sockets d'authentification retirées), réseau externe coupé (bwrap) | accès disque complet du compte utilisateur, pas de compte dédié |
+| Secret dans le livrable | gitleaks + semgrep sur le harnais (PostToolUse et Stop) ; gitleaks + semgrep (ERROR, web/python) sur les projets modifiés au Stop | faux négatifs des scanners, SAST limité aux langages couverts |
 | Tests verts annoncés sans preuve | gate Stop relance la suite ; tests sans assertion bloquants ; oracle teste une implémentation fausse ; shellcheck/format tiennent le Stop jusqu'à correction | suites non reconnues par le lanceur |
 | Injection par contenu lu | sous-agents sans shell, revérification par le fil, secrets refusés même « demandés » | instruction bénigne exécutée sans déclencheur (aucune sandbox) |
 | Deux moteurs ou sessions sur un dépôt | un moteur par copie + `AGENT_CONFIG_ROOT` ; verrou d'écrivain par dépôt (refus avant écriture, expiration 6 h) ; divergence détectée par le verifier | écritures par shell brut (le verrou protège les outils d'écriture) ; désynchronisation sans git pull |
@@ -286,7 +290,7 @@ Trois étages, tous rejouables :
 # 1. La suite du harnais (189 tests) : structure, garde, gates, verifier.
 python3 -m pytest tests/
 
-# 1 bis. La suite des hooks (105 tests) : garde, gates, fail-closed,
+# 1 bis. La suite des hooks (110 tests) : garde, gates, fail-closed,
 # verrou d'écrivain, marqueurs, liens symboliques, environnement épuré.
 python3 -m pytest hooks/verify.py
 

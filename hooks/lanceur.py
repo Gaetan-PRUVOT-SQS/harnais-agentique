@@ -3,6 +3,7 @@
 import argparse
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,16 @@ def environnement_epure(env):
     for nom in AGENTS_AUTH:
         retour.pop(nom, None)
     return retour
+
+
+def reseau_isole(commande):
+    """bwrap --unshare-net si disponible : système de fichiers inchangé,
+    réseau externe coupé, loopback debout (les tests d'intégration locaux
+    passent). None si bwrap est absent."""
+    if shutil.which('bwrap') is None:
+        return None
+    return ['bwrap', '--dev-bind', '/', '/', '--proc', '/proc',
+            '--unshare-net', '--die-with-parent', *commande]
 
 
 def main():
@@ -39,6 +50,12 @@ def main():
     command = ['bash', str(hooks / 'test-runner.sh'), '--dir', str(root)]
     if args.all:
         command.append('--all')
+    isolee = reseau_isole(command)
+    if isolee is None:
+        print('AVERTISSEMENT : réseau non isolé (bwrap absent), les tests voient le réseau.',
+              flush=True)
+    else:
+        command = isolee
     return subprocess.call(
         command,  # nosemgrep: dangerous-subprocess-use-tainted-env-args
         cwd=root,

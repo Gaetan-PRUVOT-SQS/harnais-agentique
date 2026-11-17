@@ -17,7 +17,10 @@ RACINES = ({Path('/'), Path('/home'), HOME, HOME / 'Bureau', HOME / 'Documents',
                                      'srv', 'usr', 'var')})
 CONFIG = Path(os.environ.get('AGENT_CONFIG_ROOT', str(HOME / '.agents')))
 MARQUEUR_DISABLE = re.compile(r'disable-[\w.-]+$')
-OUTILS_MARQUEUR = {'rm', 'mv', 'cp', 'touch', 'tee', 'truncate', 'shred', 'install', 'ln', 'chmod', 'chown', 'dd'}
+OUTILS_MARQUEUR = {'rm', 'mv', 'cp', 'touch', 'tee', 'truncate', 'shred', 'install', 'ln', 'chmod', 'chown', 'dd',
+                   'sed', 'awk', 'gawk', 'perl', 'rsync', 'patch', 'ed', 'ex', 'vim', 'vi', 'nano', 'emacs'}
+GIT_MARQUEUR = {'rm', 'mv', 'clean'}
+DELETE_FIND = {'-delete', '-exec', '-execdir', '-ok', '-okdir'}
 REFUS_MARQUEUR = ('Marqueur de désactivation du harnais : créé et retiré par l\'auteur à la main, '
                   'jamais par l\'agent (plan de contrôle).')
 SECRET = re.compile(r"\.credentials\.json|\.ssh/id_[\w-]+(?!\.pub)\b|\.git-credentials|\.netrc|\.pgpass"
@@ -154,9 +157,28 @@ def marqueur_disable(chemin):
 def touche_marqueur(prog, args, texte, cwd):
     if prog in OUTILS_MARQUEUR:
         for mot in args:
+            mot = mot.removeprefix('of=')
             if not mot.startswith('-') and marqueur_disable(cible(mot, cwd).resolve()):
                 return True
-    return bool(re.search(r'>+\s*[^;\n|&]*disable-[\w.-]+', texte))
+    if prog == 'git' and GIT_MARQUEUR.intersection(args):
+        base = (CONFIG / 'hooks').resolve()
+        for mot in args:
+            if mot.startswith('-'):
+                continue
+            essai = cible(mot, cwd).resolve()
+            if marqueur_disable(essai) or ('clean' in args and (essai == base or base.is_relative_to(essai))):
+                return True
+    if prog == 'find' and DELETE_FIND.intersection(args):
+        base = (CONFIG / 'hooks').resolve()
+        for mot in args:
+            if not mot.startswith('-'):
+                essai = cible(mot, cwd).resolve()
+                if essai == base or base.is_relative_to(essai):
+                    return True
+    if prog in INTERPRETEURS and DRAPEAUX_EVAL.get(prog, ()).intersection(args) \
+            and re.search(r'disable-[\w.-]+', texte):
+        return True
+    return bool(re.search(r'[\d]*>+[^;\n|&]*disable-[\w.-]+', texte))
 
 
 def recursif(args):
