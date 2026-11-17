@@ -192,12 +192,7 @@ JSON sur l'entrée standard, sortie JSON (`decision`, `permissionDecision`,
 
 `memory/` (faits du poste et des projets), `BRAIN.md` (carte de la
 machine), `HISTORIQUE.md` (journal), `docs/justifications/` (un document
-par choix technique), `archives/` : données personnelles et notes
-internes ne se publient pas — le harnais public est la partie reusable,
-pas le journal de bord. La suite de tests publique est ajustée en
-conséquence : les tests qui lisent ces fichiers sont retirés, ceux qui
-dépendent d'un outillage local (serveur de builds, CLI posé via mise)
-sautent proprement si l'outil est absent.
+par choix technique), `archives/` .
 
 ## Licences
 
