@@ -269,31 +269,39 @@ rien.
 
 Observations d'usage réel, pas un benchmark contrôlé.
 
-**Terrain.** Un mois d'usage quotidien en production personnelle :
-248 sessions sur 33 projets, un moteur principal (Grok) puis migration
-vers deux moteurs (Claude Code, ZCode). 202 skills actifs, listing
-mesuré à 33 318 caractères (15 % du plafond de 230 000).
+**Terrain.** Un mois d'usage quotidien en développement personnel :
+248 sessions réparties sur 33 projets. 202 skills actifs, listing
+mesuré à 33 318 caractères — 15 % du plafond de 230 000, contrôlé à
+chaque passage du verifier.
 
-**Conflit d'écrivains détecté (2026-11-17).** Deux moteurs actifs ont
-écrit simultanément sur le même dépôt (fiche mémoire et test d'ancrage
-modifiés en sens opposés à quelques minutes d'écart). Le verifier a
-signalé la divergence (test KO sur phrase d'ancrage) moins de deux
-minutes après la première écriture contradictoire, avant tout commit.
-Résolution : séparation en copies indépendantes (`AGENT_CONFIG_ROOT`),
-même dépôt git amont. Aucune perte de données.
+**Ce qui se passe en développement, tour après tour.**
 
-**Migration de moteur.** Trois moteurs branchés sur le même harnais le
-même jour (Grok → Claude Code → ZCode) sans réécriture : 3 liens + 1
-fichier d'enregistrement de hooks par moteur, zéro changement du code
-du harnais (une adaptation : `AGENT_SKILLS_ROOT` suit la racine exportée).
+- **Garde `PreToolUse` sur chaque appel d'outil** : réponse < 1 s pour
+  un budget de 10 s. En pratique il laisse passer le travail courant
+  sans friction et intercepte ce qui sort du cadre : lecture d'une
+  clé SSH refusée (`permissionDecision: deny`), confirmation exigée
+  avant `rm` récursif, écriture disque ou force-push.
+- **Gates d'écriture (`PostToolUse`)** : chaque script shell modifié
+  passe shellcheck et checkbashisms (< 1 s), chaque fichier formaté ;
+  un avertissement shellcheck tient le tour jusqu'à correction.
+- **Stop** : la suite de régressions du projet est relancée à chaque
+  fin de tour sur les fichiers touchés ; une régression KO bloque le
+  rendu de la main. Quand la config du harnais a changé pendant le
+  tour, le verifier `--rapide` s'ajoute (~40 s).
+- **Ce que ça coûte** : ~40 s de verifier occasionnellement au Stop,
+  moins d'une seconde par appel d'outil, 33 318 caractères de listing
+  dans le contexte.
 
-**Mesures.** Verifier `--rapide` : ~40 s dont 31,7 s pour la suite des
-hooks (90 cas) et 2,1 s pour les tests du verifier ; gitleaks 0,9 s et
-semgrep 3,5 s sur le dépôt. Garde `PreToolUse` : réponse < 1 s
-(budget 10 s), refus d'une lecture de clé SSH observé
-(`permissionDecision: deny`). Les cinq événements hook répondent code 0
-sur payloads réels. Suite publique : 187 tests passés, gitleaks sans
-fuite sur l'export publié.
+**Mesures des contrôles** (dépôt complet, machine de dev) :
+
+| Contrôle | Durée |
+|---|---|
+| Suite des hooks (`verify.py`, 90 cas) | 31,7 s |
+| Tests du verifier (192 cas privés, 187 publics) | ~2 s |
+| gitleaks | 0,9 s |
+| semgrep | 3,5 s |
+| ruff, shellcheck, checkbashisms | < 1 s chacun |
+| Verifier `--rapide` complet | ~40 s |
 
 **Ce que ces nombres ne disent pas.** La couverture des gates de
 régressions dépend du lanceur reconnu dans chaque projet ; la part
