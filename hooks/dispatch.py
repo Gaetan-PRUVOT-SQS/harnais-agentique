@@ -564,7 +564,7 @@ def main():
             except (OSError, json.JSONDecodeError):
                 qualite = {}
             if qualite:
-                reasons.append('Contrôles de qualité restés KO — corriger puis rééditer chaque fichier '
+                reasons.append('Contrôles de qualité restés KO : corriger puis rééditer chaque fichier '
                                'pour relancer son contrôle :\n'
                                + '\n'.join(f'{chemin} : {message}'
                                            for chemin, message in list(qualite.items())[:8]))

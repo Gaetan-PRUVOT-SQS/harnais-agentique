@@ -35,14 +35,14 @@ peut pas contourner parce qu'ils ne s'exécutent pas en lui.
 Une source de vérité, des moteurs branchés dessus :
 
 ```
-            ┌───────────────── moteur A (ZCode…) ─────────────────┐
+            ┌───────────────── moteur A (ZCode etc) ─────────────────┐
             │  instructions ← lien AGENTS.md                      │
             │  skills/agents ← liens symboliques                 │
             │  événements → hooks enregistrés chez le moteur     │
             └──────────────────────────┬──────────────────────────┘
                                        │ AGENT_CONFIG_ROOT=<copie du harnais>
 ~/.agents (une copie par moteur)       ▼
-├── AGENTS.md            règles permanentes — la seule source des règles
+├── AGENTS.md            règles permanentes : la seule source des règles
 ├── regles/bas-niveau.md règles OS/noyau : spec matérielle citée,
 │                         preuve par paliers (hôte, QEMU, machine)
 ├── DESIGN.md            contrat visuel par défaut de toute UI
@@ -66,7 +66,7 @@ jamais publiés)
 
 **Sous-agents.** Les 5 agents (`architecte`, `auditeur-securite`,
 `chercheur`, `explorateur`, `relecteur`) sont lecture seule **technique** :
-sans shell (Read, Grep, Glob — web pour le chercheur), liste d'outils
+sans shell (Read, Grep, Glob, web pour le chercheur), liste d'outils
 imposée par le moteur et vérifiée par le verifier. Ils rendent un
 rapport (≤ 2 000 tokens) que le fil principal revérifie avec une preuve
 neuve. Un seul écrivain par dépôt, jamais deux.
@@ -84,7 +84,7 @@ verifier (plafond 230 000 caractères ; les dix skills publiés en
 occupent une fraction infime) : la découverte ne peut pas
 silencieusement déborder le contexte.
 
-**Dix skills de méthode** — la discipline de l'agent lui-même, pas
+**Dix skills de méthode** : la discipline de l'agent lui-même, pas
 les outils métier : `pratiques-dev-senior` (niveau senior, PERMANENT),
 `revue-minutieuse` (chaque ligne du changement est exigée par un
 critère), `iso-29119` + `tests-regression-auto` + `tests-locaux` (la
@@ -93,8 +93,8 @@ doctrine de test et son exécution), `validation-gate` et
 `justifier-choix-techniques` (un document par choix, alternative
 rejetée écrite), `pratiques-git-github` (hygiène des commits, zéro
 trace d'outil), `multi-agent-orchestration` (un seul écrivain, les
-autres rendent un rapport). Les autres skills de l'auteur — piles
-métier et outillage de travail — ne sont pas publiés.
+autres rendent un rapport). Les autres skills de l'auteur (piles
+métier et outillage de travail) ne sont pas publiés.
 
 ## Limites du système
 
@@ -107,26 +107,26 @@ métier et outillage de travail — ne sont pas publiés.
   verifier, qui contrôle l'enregistrement exact de chaque événement,
   et par `dispatch.py`, qui relit l'enregistrement du moteur à chaque
   tour et tient le `Stop` tant qu'un événement attendu manque. Un hook
-  tué *à l'exécution* — dépassement de délai (garde 10 s, Stop 400 s),
-  crash, événement jamais déclenché — ne peut pas empêcher l'appel qui
+  tué *à l'exécution*, dépassement de délai (garde 10 s, Stop 400 s),
+  crash ou événement jamais déclenché, ne peut pas empêcher l'appel qui
   l'a déclenché (après expiration, c'est le moteur, pas le harnais,
   qui décide d'exécuter l'outil) : le garde pose une marque avant son
   verdict et la lève après ; la marque survit au hook tué et le `Stop`
   du tour bloque jusqu'à reprise de l'action sous contrôle. Restent
   hors de portée : l'appel déjà exécuté, et la désactivation totale
-  (aucun hook actif — seul un passage du verifier la relève). Un
+  (aucun hook actif ; seul un passage du verifier la relève). Un
   moteur sans mécanisme de hooks n'est pas protégé du tout.
 - **Une couche, pas deux.** Côté moteurs qui exposent une liste de
   permissions (refus statiques), le garde s'y ajoute et le refus tient
   même hook tué. Côté moteurs qui ne l'exposent pas, le garde est
-  l'unique couche — en faire une condition d'installation contrôlée
+  l'unique couche ; en faire une condition d'installation contrôlée
   par le verifier reste un chantier ouvert.
 - **Le plan de contrôle se protège, sans en être hors de portée.** Les
   marqueurs de désactivation (`disable-*`) ne peuvent plus être créés,
   modifiés ni supprimés par l'agent (refus du garde, y compris par
   redirection shell) ; le verifier liste ceux qui existent et l'auteur
   les pose à la main. Le reste du harnais reste accessible en écriture
-  à l'agent — c'est voulu, il maintient sa config sur demande — : la
+  à l'agent (c'est voulu, il maintient sa config sur demande) : la
   séparation complète du contrôleur et du contrôlé demanderait un
   compte dédié (chantier ouvert).
 - **La lecture seule des sous-agents est technique, pas déclarative.**
@@ -150,7 +150,7 @@ métier et outillage de travail — ne sont pas publiés.
   règles python + OWASP top dix) ; les autres langages n'ont pas de
   SAST dédié.
 - **Le push normal est contractuel.** Force-push est confirmé par le
-  garde ; un push ordinaire n'est pas intercepté mécaniquement — il
+  garde ; un push ordinaire n'est pas intercepté mécaniquement : il
   repose sur la règle « jamais de push sans demande ».
 - **La qualité du raisonnement reste hors de portée machine.** Le
   harnais contraint les actions et vérifie les artefacts ; il ne prouve
@@ -182,14 +182,14 @@ local non commité, confidentialité de la mémoire du harnais (faits du
 poste et des projets), vérité des livrables (annonces de tests,
 contenu publié).
 
-**Adversaire.** L'agent lui-même — par inadvertance, par injection de
+**Adversaire.** L'agent lui-même, par inadvertance, par injection de
 contenu (un fichier lu qui contient des instructions), ou par deux
 instances concurrentes. **Pas** un attaquant qui contrôle la machine ou
 le moteur : contre lui, le harnais n'offre rien (voir hors modèle).
 
 | Risque | Interception | Ce qui reste non couvert |
 |---|---|---|
-| Lecture/exfiltration d'un secret | garde `deny` : chemins bruts **et résolus** (liens symboliques), motifs d'interpréteur (`python -c open(".env")`…), catalogue étendu (kube, docker, gcloud, npmrc, pypirc, `.pem` privées) ; gitleaks sur ce qui est écrit | un secret déjà recopié hors motifs ; l'appel exécuté avant un hook tué (la marque d'interruption tient le tour) |
+| Lecture/exfiltration d'un secret | garde `deny` : chemins bruts **et résolus** (liens symboliques), motifs d'interpréteur (`python -c open(".env")` et proches), catalogue étendu (kube, docker, gcloud, npmrc, pypirc, `.pem` privées) ; gitleaks sur ce qui est écrit | un secret déjà recopié hors motifs ; l'appel exécuté avant un hook tué (la marque d'interruption tient le tour) |
 | Commande irréversible (`rm -rf`, `dd`, firmware) | garde `ask`/`deny` avant exécution | rien, si le hook tourne |
 | Perte de travail local (`git clean`, `reset --hard`) | garde de dépôt : travail non commité détecté | commits déjà poussés de force (confirmé seulement) |
 | Désactivation silencieuse d'un contrôle | marqueurs `disable-*` refusés au garde (création, modification, suppression, redirections) et listés par le verifier ; événement retiré du moteur détecté à chaque tour, `Stop` tenu | désactivation totale : aucun hook ne peut s'exécuter pour le constater |
@@ -203,7 +203,7 @@ le moteur : contre lui, le harnais n'offre rien (voir hors modèle).
 **Hors du modèle** : compromission du moteur ou de l'OS, exfiltration
 réseau par un processus non passé par les hooks, attaques physiques,
 canaux latéraux. Le harnais est un contrôle d'actions de l'agent, pas
-un confinement — il n'y a pas de sandbox.
+un confinement : il n'y a pas de sandbox.
 
 ## Prérequis
 
@@ -211,7 +211,7 @@ un confinement — il n'y a pas de sandbox.
 - Python ≥ 3.11 (`tomllib`), avec `pytest`.
 - Outils des contrôles : `jq`, `ruff`, `shellcheck`, `checkbashisms`
   (paquet devscripts), `shfmt`, `gitleaks`, `semgrep`. Un outil absent
-  est signalé (« ne pas annoncer de validation ») — le verifier ne
+  est signalé (« ne pas annoncer de validation ») ; le verifier ne
   ment jamais sur ce qu'il n'a pas lancé. Au premier passage, semgrep
   télécharge ses règles (réseau), puis les garde en cache.
 - `bwrap` (bubblewrap), recommandé : coupe le réseau externe des suites
@@ -229,7 +229,7 @@ git clone <ce dépôt> ~/.agents
 ~/.agents/verifier --rapide        # doit finir vert avant de continuer
 ```
 
-Brancher votre moteur — **un moteur par copie**, jamais deux écrivains
+Brancher votre moteur : **un moteur par copie**, jamais deux écrivains
 sur le même dépôt :
 
 **Règles** : lier `AGENTS.md` dans les instructions du moteur.
@@ -289,10 +289,10 @@ code de sortie (`2` = blocage).
 
 **Contenu volontairement absent** de ce dépôt : les autres skills
 de l'auteur (outils métier de travail personnel), `memory/`,
-`BRAIN.md`, `HISTORIQUE.md`, `docs/justifications/`, `archives/` —
+`BRAIN.md`, `HISTORIQUE.md`, `docs/justifications/`, `archives/` :
 outils, données personnelles, état du poste et justifications internes
-ne se publient pas. Seul le cerveau agentique — règles, garde-fous,
-verifier, agents et la méthode — est partagé. La suite de tests
+ne se publient pas. Seul le cerveau agentique (règles, garde-fous,
+verifier, agents et méthode) est partagé. La suite de tests
 publique est ajustée en conséquence (tests retirés ou sautés si
 l'outil visé est absent).
 
@@ -324,15 +324,15 @@ echo '{"session_id":"essai","stop_hook_active":false}' \
 Le verifier contrôle : frontmatter et liens des skills et agents,
 budget du listing, hooks en python isolé (`python3 -E -s`, délais
 exacts), refus de secrets, marqueurs de désactivation (`disable-*`),
-empreintes des skills importés (contrôle du lock — « non lancé » si le
+empreintes des skills importés (contrôle du lock ; « non lancé » si le
 dépôt n'en publie pas, comme celui-ci), gitleaks, semgrep, ruff,
 shellcheck, checkbashisms, suite pytest. Les contrôles liés au poste
-passent en « non lancés » si le fichier visé est absent — le dépôt est
+passent en « non lancés » si le fichier visé est absent : le dépôt est
 vert sur toute machine, sans mentir sur ce qui n'a pas tourné.
 
 Un détail de conception : la gate oracle teste volontairement une
 **implémentation fausse** (`hooks/oracle_vide.py`) pour prouver que les
-tests mordent — un test qui ne distingue pas le vrai du faux ne vaut
+tests mordent : un test qui ne distingue pas le vrai du faux ne vaut
 rien.
 
 ### 4. Installation vierge, rejouable
@@ -346,7 +346,7 @@ cd harnais-neuf && mkdir home-isole && HOME="$PWD/home-isole" ./verifier --rapid
 ```
 
 Sur la machine de l'auteur, le moteur vivant est câblé sur une autre
-copie du harnais : les mêmes contrôles y passent KO — le verifier
+copie du harnais : les mêmes contrôles y passent KO : le verifier
 compare l'enregistrement du moteur à SA racine, il ne ment pas sur ce
 qu'il voit.
 
@@ -393,7 +393,7 @@ et reste largement sous le plafond de 230 000 caractères.
 régressions dépend du lanceur reconnu dans chaque projet ; la part
 comportementale (preuve fraîche, revérification des rapports) est un
 contrat, dont on observe qu'il tient tant que les règles restent
-chargées et courtes — c'est précisément ce que le verifier budgete.
+chargées et courtes ; c'est précisément ce que le verifier budgete.
 
 ## Licence
 

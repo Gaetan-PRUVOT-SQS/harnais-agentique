@@ -128,7 +128,7 @@ Le formateur possède le style. Un écart de goût ne se commente pas.
 
 ```
 Périmètre :
-Lu : N hunks, fichiers…
+Lu : N hunks, fichiers, etc.
 Outils : commande, sortie (inutilisé / inatteignable)
 Bloquants :
   fichier:ligne, classe, phrase de la question qui échoue
