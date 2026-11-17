@@ -20,7 +20,7 @@ prévisible :
   flash firmware, `git reset --hard`) sans comprendre la portée ;
 - il **dérive de ses règles** au fil du contexte : les consignes du
   premier tour ne survivent pas à la dixième fichier ;
-- à plusieurs agents, il **écrivent en parallèle** sur les mêmes
+- à plusieurs agents, **ils écrivent en parallèle** sur les mêmes
   fichiers et se corrigent mutuellement en boucle.
 
 Le problème traité : **déléguer du travail réel à un agent, en mode
@@ -49,9 +49,10 @@ Une source de vérité, des moteurs branchés dessus :
 ├── skills/              10 skills de méthode (frontmatter name + description)
 ├── agents/              5 sous-agents lecture seule (sans shell)
 ├── hooks/dispatch.py    ENTRÉE UNIQUE de tous les hooks
-├── verifier             contrôle la config entière
-└── memory/              faits (jamais de règles) — privée, non publiée
+└── verifier             contrôle la config entière
 ```
+(mémoire du harnais, historique et justifications : chez l'auteur,
+jamais publiés)
 
 **Cycle d'un tour.** Le moteur déclenche les hooks ; `dispatch.py`
 (traduit au passage les noms d'outils du moteur hôte) route :
@@ -61,7 +62,7 @@ Une source de vérité, des moteurs branchés dessus :
 | `PreToolUse` | garde : secrets (chemins bruts **et résolus**, catalogue étendu), `rm` récursif, écriture disque/firmware, force-push, marqueurs de désactivation, verrou d'écrivain du dépôt | `deny` ou `ask` **avant** l'exécution |
 | `PostToolUse` (écritures) | shellcheck, checkbashisms, shfmt/ruff, scan cyber | signalé au tour ; les échecs de qualité **tiennent le Stop** jusqu'à correction |
 | `Stop` | scan cyber, gitleaks et semgrep sur les projets modifiés, tests de régression, oracle, verifier de config, état du harnais (dégradation, marque d'interruption, verrous) | la main ne revient pas tant qu'un contrôle échoue |
-| `SessionStart` / `UserPromptSubmit` | état de session, relecture de l'enregistrement moteur, déclencheurs ponctuels | nettoyage, aiguillage, alerte de dégradation |
+| `SessionStart` / `UserPromptSubmit` | état de session, relecture de l'enregistrement moteur, battement de cœur des verrous, déclencheurs ponctuels | nettoyage, aiguillage, alerte de dégradation |
 
 **Sous-agents.** Les 5 agents (`architecte`, `auditeur-securite`,
 `chercheur`, `explorateur`, `relecteur`) sont lecture seule **technique** :
@@ -219,7 +220,7 @@ un confinement — il n'y a pas de sandbox.
 - Un moteur à hooks (protocole Claude Code : ZCode, Claude Code, Grok)
   pour la partie dynamique. Les règles, skills et agents s'utilisent
   sans moteur.
-- ~30 Mo.
+- ~12 Mo (104 fichiers).
 
 ## Installation
 
@@ -308,7 +309,7 @@ python3 -m pytest tests/
 python3 -m pytest hooks/verify.py
 
 # 2. Le verifier complet.
-./verifier                 # ou --rapide (~40 s)
+./verifier                 # ou --rapide (~2 min)
 
 # 3. Bout en bout, sur payloads réels :
 echo '{"tool_name":"Read","tool_input":{"file_path":"'"$HOME"'/.ssh/id_rsa"},"cwd":"'"$HOME"'"}' \
@@ -322,23 +323,32 @@ echo '{"session_id":"essai","stop_hook_active":false}' \
 
 Le verifier contrôle : frontmatter et liens des skills et agents,
 budget du listing, hooks en python isolé (`python3 -E -s`, délais
-exacts), refus de secrets, gitleaks, semgrep, ruff, shellcheck,
-checkbashisms, suite pytest. Les contrôles liés au poste passent en
-« non lancés » si le fichier visé est absent — le dépôt est vert sur
-toute machine, sans mentir sur ce qui n'a pas tourné.
+exacts), refus de secrets, marqueurs de désactivation (`disable-*`),
+empreintes des skills importés (contrôle du lock — « non lancé » si le
+dépôt n'en publie pas, comme celui-ci), gitleaks, semgrep, ruff,
+shellcheck, checkbashisms, suite pytest. Les contrôles liés au poste
+passent en « non lancés » si le fichier visé est absent — le dépôt est
+vert sur toute machine, sans mentir sur ce qui n'a pas tourné.
 
 Un détail de conception : la gate oracle teste volontairement une
 **implémentation fausse** (`hooks/oracle_vide.py`) pour prouver que les
 tests mordent — un test qui ne distingue pas le vrai du faux ne vaut
 rien.
 
-# 4. Installation vierge, rejouable :
+### 4. Installation vierge, rejouable
+
+```sh
 git clone <ce dépôt> harnais-neuf
 cd harnais-neuf && mkdir home-isole && HOME="$PWD/home-isole" ./verifier --rapide
-# attendu : 0 KO ; les contrôles liés au moteur passent en « non lancés ».
-# Sur la machine de l'auteur, si le moteur vivant est câblé sur une autre
-# copie du harnais, ces mêmes contrôles passent KO : le verifier compare
-# l'enregistrement du moteur à SA racine, il ne mente pas sur ce qu'il voit.
+# attendu : 0 KO ; les contrôles liés au moteur et à l'outillage local
+# passent en « non lancés » (cinq à la publication : moteur non branché,
+# lock absent, pytest/state selon le poste).
+```
+
+Sur la machine de l'auteur, le moteur vivant est câblé sur une autre
+copie du harnais : les mêmes contrôles y passent KO — le verifier
+compare l'enregistrement du moteur à SA racine, il ne ment pas sur ce
+qu'il voit.
 
 ## Résultats expérimentaux
 
@@ -363,7 +373,7 @@ chaque passage du verifier.
   fin de tour sur les fichiers touchés ; une régression KO bloque le
   rendu de la main. Quand la config du harnais a changé pendant le
   tour, le verifier `--rapide` s'ajoute (~2 min).
-- **Ce que ça coûte** : ~40 s de verifier occasionnellement au Stop,
+- **Ce que ça coûte** : ~2 min de verifier occasionnellement au Stop,
   moins d'une seconde par appel d'outil, 33 318 caractères de listing
   dans le contexte.
 
