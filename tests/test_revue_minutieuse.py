@@ -45,17 +45,6 @@ def test_charge_pour_tout_code():
     assert "pratiques-dev-senior" in ligne[0]
 
 
-def test_voisins_pointent_sans_recopier_le_moteur():
-    senior = _texte(SENIOR)
-    assert "`revue-minutieuse`" in senior
-    assert "Barre ligne à ligne avant d'écrire" in senior
-    justifier = _texte(JUSTIFIER)
-    assert "`revue-minutieuse`" in justifier
-    review = _texte(CODE_REVIEW)
-    assert "`revue-minutieuse`" in review
-    assert "Map a flow → identify an obligation" not in _texte(SKILL)
-
-
 def test_taxonomie_classes_et_goto_fail():
     brut = _texte(TAXONOMIE)
     for classe in (

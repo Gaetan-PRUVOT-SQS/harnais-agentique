@@ -526,35 +526,6 @@ FICHIERS_GCC = (
 )
 
 
-def test_gcc_avertissements_relus():
-    for relatif in FICHIERS_GCC:
-        texte = (RACINE / relatif).read_text(encoding='utf-8')
-        assert PHRASE_GCC in verifier.compacte(texte), relatif
-
-
-def test_plancher_couverture_relu():
-    for relatif in FICHIERS_PLANCHER:
-        texte = (RACINE / relatif).read_text(encoding='utf-8')
-        assert PHRASE_PLANCHER in verifier.compacte(texte), relatif
-
-
-def test_unit_testing_ne_fixe_plus_80():
-    brut = '\n'.join(
-        (RACINE / relatif).read_text(encoding='utf-8')
-        for relatif in (
-            'skills/unit-testing/SKILL.md',
-            'skills/unit-testing/references/patterns.md',
-        )
-    )
-    assert 'branches: 80' not in brut
-    assert 'fail_under = 80' not in brut
-    assert 'fail-under=80' not in brut
-    assert '80% line' not in brut
-    assert 'branches: 90' in brut
-    assert 'fail_under = 90' in brut
-    assert 'fail-under=90' in brut
-
-
 def test_pour_une_note_de_memoire_ne_lance_rien():
     fini = subprocess.run([sys.executable, str(RACINE / 'verifier'), '--rapide', '--pour', 'memory/projets/x.md'],
                           capture_output=True, text=True, timeout=60, check=False)

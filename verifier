@@ -360,6 +360,8 @@ def hash_dossier(dossier):
 def controle_lock_skills(chemin=None, racine=RACINE):
     """Empreintes locales des skills importés : le lock horodate, on recale."""
     chemin = chemin if chemin is not None else (racine / '.skill-lock.json')
+    if not Path(chemin).is_file():
+        return None, f'absent : {chemin} (aucun skill importé publié)'
     try:
         lock = json.loads(Path(chemin).read_text(encoding='utf-8'))
     except (OSError, json.JSONDecodeError) as erreur:

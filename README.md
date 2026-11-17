@@ -1,8 +1,8 @@
 # Harnais agentique
 
 Un harnais de travail pour agents de code : règles permanentes,
-garde-fous exécutés en hooks, 202 skills, 5 sous-agents en lecture
-seule, et un verifier qui contrôle l'ensemble. Conçu pour qu'un agent
+garde-fous exécutés en hooks, dix skills de méthode, 5 sous-agents en
+lecture seule et un verifier qui contrôle l'ensemble. Conçu pour qu'un agent
 travaille en mode automatisé sans supervision tour par tour : ce qu'il
 affirme est prouvé, ce qui est dangereux est intercepté avant
 d'exécuter, ce qui est livré est re-vérifié avant de rendre la main.
@@ -46,7 +46,7 @@ Une source de vérité, des moteurs branchés dessus :
 ├── regles/bas-niveau.md règles OS/noyau : spec matérielle citée,
 │                         preuve par paliers (hôte, QEMU, machine)
 ├── DESIGN.md            contrat visuel par défaut de toute UI
-├── skills/              202 skills (frontmatter name+description ≤1024)
+├── skills/              10 skills de méthode (frontmatter name + description)
 ├── agents/              5 sous-agents lecture seule (sans shell)
 ├── hooks/dispatch.py    ENTRÉE UNIQUE de tous les hooks
 ├── verifier             contrôle la config entière
@@ -79,15 +79,21 @@ d'une session sur un dépôt déjà tenu par une autre. Deux moteurs sur une mê
 détecté).
 
 **Budget de contexte.** Le listing des skills est mesuré par le
-verifier (33 318 caractères pour 202 skills, plafond 230 000) : la
-découverte ne peut pas silencieusement déborder le contexte.
+verifier (plafond 230 000 caractères — 33 318 pour les 202 skills de
+l'auteur) : la découverte ne peut pas silencieusement déborder le
+contexte.
 
-**Pile de skills.** Bas niveau (C, OS, assembleur, noyau, libc, shell
-maison), réseau, Android, WordPress, CI/CD, GCP, Postgres, finance
-quantitative (pricing, dérivés, risque, ML de marché avec garde-fous
-anti-fuite), outillage transverse (TDD, revue minutieuse, audit).
-Chaque skill importé est tracé dans `.skill-lock.json` (source,
-empreinte).
+**Dix skills de méthode** — la discipline de l'agent lui-même, pas
+les outils métier : `pratiques-dev-senior` (niveau senior, PERMANENT),
+`revue-minutieuse` (chaque ligne du changement est exigée par un
+critère), `iso-29119` + `tests-regression-auto` + `tests-locaux` (la
+doctrine de test et son exécution), `validation-gate` et
+`revue-validation` (le verdict ne tombe que sur preuve),
+`justifier-choix-techniques` (un document par choix, alternative
+rejetée écrite), `pratiques-git-github` (hygiène des commits, zéro
+trace d'outil), `multi-agent-orchestration` (un seul écrivain, les
+autres rendent un rapport). Les ~190 autres skills de l'auteur —
+piles métier et outillage de travail — ne sont pas publiés.
 
 ## Limites du système
 
@@ -280,18 +286,21 @@ Le protocole parlé par `dispatch.py` : JSON sur l'entrée standard,
 sortie JSON (`decision`, `permissionDecision`, `additionalContext`) ou
 code de sortie (`2` = blocage).
 
-**Contenu volontairement absent** de ce dépôt : `memory/`, `BRAIN.md`,
-`HISTORIQUE.md`, `docs/justifications/`, `archives/` — données
-personnelles, état du poste et justifications internes ne se publient
-pas. La suite de tests publique est ajustée en conséquence (tests
-retirés ou sautés si l'outil visé est absent).
+**Contenu volontairement absent** de ce dépôt : les ~190 skills
+métier de l'auteur (outils de travail personnels), `memory/`,
+`BRAIN.md`, `HISTORIQUE.md`, `docs/justifications/`, `archives/` —
+outils, données personnelles, état du poste et justifications internes
+ne se publient pas. Seul le cerveau agentique — règles, garde-fous,
+verifier, agents et la méthode — est partagé. La suite de tests
+publique est ajustée en conséquence (tests retirés ou sautés si
+l'outil visé est absent).
 
 ## Validation
 
 Trois étages, tous rejouables :
 
 ```sh
-# 1. La suite du harnais (189 tests) : structure, garde, gates, verifier.
+# 1. La suite du harnais (126 tests) : structure, garde, gates, verifier.
 python3 -m pytest tests/
 
 # 1 bis. La suite des hooks (110 tests) : garde, gates, fail-closed,
@@ -363,7 +372,7 @@ chaque passage du verifier.
 | Contrôle | Durée |
 |---|---|
 | Suite des hooks (`verify.py`, 110 cas) | ~104 s |
-| Tests du verifier (194 cas privés, 189 publics) | ~2 s |
+| Tests du verifier (194 cas privés, 126 publics) | ~2 s |
 | gitleaks | 0,9 s |
 | semgrep (harnais) / SAST projet au Stop | 3,5 s / ~2 s |
 | ruff, shellcheck, checkbashisms | < 1 s chacun |
@@ -377,5 +386,4 @@ chargées et courtes — c'est précisément ce que le verifier budgete.
 
 ## Licence
 
-Code du harnais : MIT (voir `LICENSE`). Skills importés : voir
-`.skill-lock.json` pour leur source d'origine.
+Code du harnais et dix skills de méthode : MIT (voir `LICENSE`).
