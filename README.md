@@ -298,7 +298,7 @@ l'outil visé est absent).
 
 ## Validation
 
-Trois étages, tous rejouables :
+Quatre étages, tous rejouables :
 
 ```sh
 # 1. La suite du harnais (126 tests) : structure, garde, gates, verifier.
