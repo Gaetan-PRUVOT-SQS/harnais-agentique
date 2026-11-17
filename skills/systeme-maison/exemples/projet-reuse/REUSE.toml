@@ -1,0 +1,13 @@
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Les contributeurs du projet"
+SPDX-License-Identifier = "GPL-2.0-or-later"
+
+[[annotations]]
+path = "tiers/mini/**"
+precedence = "override"
+SPDX-FileCopyrightText = "Auteur amont du composant mini"
+SPDX-License-Identifier = "MIT"

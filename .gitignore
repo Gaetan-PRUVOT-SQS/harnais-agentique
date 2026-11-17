@@ -1,0 +1,22 @@
+# Données privées : jamais publiées (règle AGENTS.md)
+/memory/
+/BRAIN.md
+/HISTORIQUE.md
+/docs/
+/archives/
+/skills-archive/
+/statusline/
+/build/
+.cyber-ignore
+backup-*.tar.zst
+
+# Caches
+__pycache__/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+*.pyc
+/skills/*/templates/**/build/
+/skills/*/exemples/**/build/
+/skills/security-audit/build/
+/skills/ghidra/build/

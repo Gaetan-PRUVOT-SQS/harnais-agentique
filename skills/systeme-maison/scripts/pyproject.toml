@@ -1,0 +1,25 @@
+[project]
+name = "licences-tierces"
+version = "1.0.0"
+description = "Code tiers et licences d un projet REUSE"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "UP", "SIM", "RUF", "I", "PL"]
+ignore = ["PLR2004"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+strict = true
+exclude = ["fixtures/"]

@@ -1,0 +1,41 @@
+#!/bin/sh
+set -eu
+
+usage()
+{
+	printf 'usage : %s LISTE DOSSIER_SORTIE\n' "${0##*/}" >&2
+	exit 2
+}
+
+types()
+{
+	while IFS="$(printf '\t')" read -r nom type _; do
+		printf 'typedef %s %s;\n' "$type" "$nom"
+	done <"$1"
+}
+
+tailles()
+{
+	while IFS="$(printf '\t')" read -r nom _ taille; do
+		if [ -n "$taille" ]; then
+			printf '_Static_assert(sizeof(%s) == %s, "%s");\n' "$nom" "$taille" "$nom"
+		fi
+	done <"$1"
+}
+
+[ "$#" -eq 2 ] || usage
+liste="$1"
+sortie="$2"
+[ -f "$liste" ] || {
+	printf 'liste absente : %s\n' "$liste" >&2
+	exit 2
+}
+mkdir -p -- "$sortie/sys"
+{
+	printf '#ifndef SYS_TYPES_H\n# define SYS_TYPES_H\n\n# include <stddef.h>\n\n'
+	types "$liste"
+	printf '\n_Static_assert(sizeof(ssize_t) == sizeof(size_t), "ssize_t");\n'
+	tailles "$liste"
+	printf '\n#endif\n'
+} >"$sortie/sys/types.h.part"
+mv -- "$sortie/sys/types.h.part" "$sortie/sys/types.h"

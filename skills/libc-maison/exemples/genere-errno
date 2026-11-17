@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+
+usage()
+{
+	printf 'usage : %s LISTE DOSSIER_SORTIE\n' "${0##*/}" >&2
+	exit 2
+}
+
+definitions()
+{
+	while IFS="$(printf '\t')" read -r nom numero _; do
+		printf '# define %s %s\n' "$nom" "$numero"
+	done <"$1"
+}
+
+messages()
+{
+	while IFS="$(printf '\t')" read -r nom _ texte; do
+		printf '\t[%s] = "%s",\n' "$nom" "$texte"
+	done <"$1"
+}
+
+[ "$#" -eq 2 ] || usage
+liste="$1"
+sortie="$2"
+[ -f "$liste" ] || {
+	printf 'liste absente : %s\n' "$liste" >&2
+	exit 2
+}
+mkdir -p -- "$sortie"
+{
+	printf '#ifndef ERRNO_H\n# define ERRNO_H\n\n'
+	definitions "$liste"
+	printf '\nextern int\terrno;\n\n#endif\n'
+} >"$sortie/errno.h.part"
+{
+	printf '#ifndef ERRNO_NOYAU_H\n# define ERRNO_NOYAU_H\n\n'
+	definitions "$liste"
+	printf '\n#endif\n'
+} >"$sortie/errno_noyau.h.part"
+{
+	printf '#include "errno.h"\n\nconst char\t*g_errno_messages[] = {\n'
+	messages "$liste"
+	printf '};\n'
+} >"$sortie/errno_messages.c.part"
+for f in errno.h errno_noyau.h errno_messages.c; do
+	mv -- "$sortie/$f.part" "$sortie/$f"
+done

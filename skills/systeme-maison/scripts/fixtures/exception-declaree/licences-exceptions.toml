@@ -1,0 +1,4 @@
+[[exception]]
+chemin = "src/cherche.py"
+marqueurs = ["Permission is hereby granted"]
+raison = "motif recherché dans des binaires, pas une licence copiée"

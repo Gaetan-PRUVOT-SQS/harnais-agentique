@@ -1,0 +1,65 @@
+#!/bin/sh
+set -eu
+
+usage()
+{
+	printf 'usage : %s SHELL_TESTE DOSSIER_CAS [SHELL_REFERENCE]\n' "${0##*/}" >&2
+	printf '  compare sortie standard, code de retour et présence d erreurs\n' >&2
+	exit 2
+}
+
+lancer()
+{
+	shell="$1"
+	cas="$2"
+	prefixe="$3"
+	set +e
+	"$shell" "$cas" >"$prefixe.out" 2>"$prefixe.err" </dev/null
+	printf '%s\n' "$?" >"$prefixe.code"
+	set -e
+	if [ -s "$prefixe.err" ]; then
+		printf 'oui\n' >"$prefixe.erreur"
+	else
+		printf 'non\n' >"$prefixe.erreur"
+	fi
+}
+
+comparer()
+{
+	cas="$1"
+	nom="${cas##*/}"
+	lancer "$teste" "$cas" "$travail/$nom.teste"
+	lancer "$reference" "$cas" "$travail/$nom.ref"
+	for partie in out code erreur; do
+		if ! cmp -s "$travail/$nom.ref.$partie" "$travail/$nom.teste.$partie"; then
+			printf 'KO %s (%s)\n' "$nom" "$partie"
+			diff -u "$travail/$nom.ref.$partie" "$travail/$nom.teste.$partie" | sed -n '3,12p'
+			return 1
+		fi
+	done
+	printf 'OK %s\n' "$nom"
+}
+
+[ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage
+teste="$1"
+dossier="$2"
+reference="${3:-dash}"
+command -v "$reference" >/dev/null 2>&1 || {
+	printf 'référence absente : %s\n' "$reference" >&2
+	exit 127
+}
+[ -d "$dossier" ] || {
+	printf 'dossier de cas absent : %s\n' "$dossier" >&2
+	exit 2
+}
+travail="build/compare-shells"
+mkdir -p -- "$travail"
+echecs=0
+total=0
+for cas in "$dossier"/*.sh; do
+	[ -f "$cas" ] || continue
+	total=$((total + 1))
+	comparer "$cas" || echecs=$((echecs + 1))
+done
+printf '%s cas, %s KO\n' "$total" "$echecs"
+[ "$total" -gt 0 ] && [ "$echecs" -eq 0 ]

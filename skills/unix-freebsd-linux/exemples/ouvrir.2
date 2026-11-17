@@ -1,0 +1,70 @@
+.Dd September 29, 2026
+.Dt OUVRIR 2
+.Os
+.Sh NAME
+.Nm ouvrir
+.Nd ouvrir un fichier sous un dossier, avec une structure extensible
+.Sh SYNOPSIS
+.In ouvrir.h
+.Ft int
+.Fn ouvrir "int dossier" "const char *chemin" "const t_ouvrir *comment" "size_t taille"
+.Sh DESCRIPTION
+.Fn ouvrir
+ouvre
+.Fa chemin
+relativement au descripteur
+.Fa dossier .
+La structure
+.Fa comment
+porte les drapeaux d'ouverture, le mode de création et les
+règles de résolution du chemin.
+.Fa taille
+vaut
+.Li sizeof(t_ouvrir)
+tel que l'appli l'a compilé.
+.Pp
+Une appli compilée avec une version plus ancienne passe une taille plus
+petite : les champs manquants valent zéro.
+Une appli plus récente passe une taille plus grande : l'appel
+réussit seulement si les octets que le noyau ne connaît pas sont
+tous nuls.
+.Pp
+Bits de
+.Va resolution :
+.Bl -tag -width RESOUDRE_SANS_LIEN
+.It Dv RESOUDRE_SOUS
+le chemin ne sort pas de
+.Fa dossier ,
+ni par
+.Pa .. ,
+ni par un chemin absolu, ni par un lien symbolique.
+.It Dv RESOUDRE_SANS_LIEN
+aucun lien symbolique n'est suivi.
+.El
+.Sh RETURN VALUES
+Un descripteur fermé à l'exécution, ou \-1 avec
+.Va errno
+positionné.
+.Sh ERRORS
+.Bl -tag -width Er
+.It Bq Er EINVAL
+.Fa taille
+est plus petite que la première version de la structure, ou
+.Va resolution
+contient un bit inconnu.
+.It Bq Er E2BIG
+.Fa taille
+dépasse une page, ou un octet inconnu du noyau n'est pas nul.
+.It Bq Er EFAULT
+.Fa comment
+ou
+.Fa chemin
+est hors de l'espace de l'appli.
+.El
+.Sh SEE ALSO
+.Xr open 2
+.Sh HISTORY
+La première version de
+.Vt t_ouvrir
+fait 16 octets ; la version 1 ajoute
+.Va resolution .

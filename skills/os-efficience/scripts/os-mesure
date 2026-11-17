@@ -1,0 +1,289 @@
+#!/usr/bin/env python3
+"""Mesures de frugalité d'un noyau hobby dans QEMU.
+
+os-mesure taille KERNEL.elf [--budget OCTETS]
+    Taille des sections chargées ; code 1 si le budget est dépassé.
+os-mesure profil KERNEL.elf [--iso IMAGE.iso] [--marqueur TEXTE] [--secondes N]
+                  [--top N] [-- ARGS_QEMU...]
+    Instructions exécutées dans le noyau (hors BIOS et chargeur) et
+    fonctions les plus chaudes, via le plugin QEMU hotblocks (TCG).
+os-mesure repos (KERNEL.elf | IMAGE.iso) [--secondes N] [-- ARGS_QEMU...]
+    CPU hôte consommé par la VM une fois démarrée (KVM). Proche de 0 %
+    si l'OS attend avec hlt, proche de 100 % s'il boucle.
+os-mesure ram (KERNEL.elf | IMAGE.iso) [--max MIO] [--budget MIO]
+              [--marqueur TEXTE] [--secondes N] [-- ARGS_QEMU...]
+    Plus petite RAM (-m, en Mio) avec laquelle le marqueur série
+    apparaît, par dichotomie ; code 1 si elle dépasse le budget.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import time
+from collections import defaultdict
+
+PLUGINS = os.path.expanduser('~/.local/src/qemu-plugins')
+QEMU = os.environ.get('OS_MESURE_QEMU', 'qemu-system-i386')
+
+
+def qemu_for(kernel):
+    if 'OS_MESURE_QEMU' in os.environ:
+        return QEMU
+    try:
+        with open(kernel, 'rb') as f:
+            head = f.read(5)
+    except OSError:
+        return QEMU
+    return 'qemu-system-x86_64' if head[:4] == b'\x7fELF' and head[4] == 2 else QEMU
+
+
+def sections(elf, flag='A'):
+    """Sections qui portent ce drapeau (A chargée, X exécutable)."""
+    out = subprocess.run(['readelf', '-SW', elf], capture_output=True,
+                         text=True, check=True).stdout
+    res = []
+    for line in out.splitlines():
+        line = line.replace('[ ', '[')
+        parts = line.split()
+        if len(parts) < 8 or not parts[0].startswith('['):
+            continue
+        name, addr, size, flags = parts[1], parts[3], parts[5], parts[7]
+        try:
+            addr, size = int(addr, 16), int(size, 16)
+        except ValueError:
+            continue
+        if flag in flags and size:
+            res.append((name, addr, size))
+    return res
+
+
+def boot_args(target, iso=None):
+    if iso:
+        return ['-cdrom', iso]
+    if target.endswith('.iso'):
+        return ['-cdrom', target]
+    return ['-kernel', target]
+
+
+def cmd_taille(a):
+    total = 0
+    for name, _, size in sections(a.kernel):
+        print(f'{name:<12} {size:>9} octets')
+        total += size
+    print(f'{"total":<12} {total:>9} octets en mémoire')
+    print(f'{"fichier":<12} {os.path.getsize(a.kernel):>9} octets sur disque')
+    if a.budget and total > a.budget:
+        print(f'budget dépassé : {total} > {a.budget}')
+        return 1
+    return 0
+
+
+def symbols(elf):
+    out = subprocess.run(['nm', '-n', '--defined-only', elf],
+                         capture_output=True, text=True, check=True).stdout
+    syms = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[1] in 'tTwW':
+            syms.append((int(parts[0], 16), parts[2]))
+    return syms
+
+
+def owner(syms, pc):
+    best = '?'
+    for addr, name in syms:
+        if addr > pc:
+            break
+        best = name
+    return best
+
+
+def cmd_profil(a):
+    # Seul le code du noyau compte : GRUB peut exécuter du code dans la
+    # zone de .bss avant le chargement.
+    code = sections(a.kernel, 'X')
+    lo = min(s[1] for s in code)
+    hi = max(s[1] + s[2] for s in code)
+    # Journaux gardés dans le projet, écrasés à chaque mesure.
+    dossier = os.path.join(os.getcwd(), 'build', 'mesure')
+    os.makedirs(dossier, exist_ok=True)
+    log = os.path.join(dossier, 'hot.log')
+    serial = os.path.join(dossier, 'serial.log')
+    for vieux in (log, serial):
+        if os.path.exists(vieux):
+            os.remove(vieux)
+    cmd = [qemu_for(a.kernel), *boot_args(a.kernel, a.iso), '-display', 'none',
+           '-serial', f'file:{serial}', '-no-reboot', '-accel', 'tcg',
+           '-icount', 'shift=0',
+           '-plugin', f'{PLUGINS}/libhotblocks.so,limit=100000',
+           '-d', 'plugin', '-D', log, *a.qemu]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    # Arrêter une seconde après le marqueur série, ou au délai maximum.
+    end = time.time() + a.secondes
+    seen = False
+    while time.time() < end and proc.poll() is None:
+        if os.path.exists(serial) and a.marqueur in open(
+                serial, errors='replace').read():
+            seen = True
+            time.sleep(1)
+            break
+        time.sleep(0.2)
+    proc.terminate()
+    proc.wait()
+    if not seen:
+        print(f'marqueur « {a.marqueur} » absent de la sortie série')
+    if not os.path.exists(log):
+        print('pas de journal du plugin : QEMU a-t-il démarré ?')
+        return 1
+    lines = open(log).read().splitlines()
+    syms = symbols(a.kernel)
+    first = syms[0][0] if syms else lo
+    per_fn = defaultdict(int)
+    total = 0
+    avant = 0
+    for line in lines:
+        parts = [p.strip() for p in line.split(',')]
+        if len(parts) != 4 or not parts[0].startswith('0x'):
+            continue
+        pc, icount, ecount = int(parts[0], 16), int(parts[2]), int(parts[3])
+        if not any(base <= pc < base + size for _, base, size in code):
+            continue
+        if pc < first:
+            # Avant le premier symbole (en-tête Multiboot) : code du
+            # chargeur exécuté là avant la copie du noyau, pas le noyau.
+            avant += icount * ecount
+            continue
+        per_fn[owner(syms, pc)] += icount * ecount
+        total += icount * ecount
+    print(f'instructions exécutées dans le noyau : {total}')
+    if avant:
+        print(f'(écartées : {avant} instructions du chargeur avant le noyau)')
+    for name, n in sorted(per_fn.items(), key=lambda x: -x[1])[:a.top]:
+        share = 100 * n / total if total else 0
+        print(f'{n:>12} {share:5.1f} %  {name}')
+    return 0 if total else 1
+
+
+def marqueur_vu(serial, marqueur):
+    if not os.path.exists(serial):
+        return False
+    with open(serial, errors='replace') as f:
+        return marqueur in f.read()
+
+
+def demarre_avec(a, mio, serial):
+    if os.path.exists(serial):
+        os.remove(serial)
+    cmd = [qemu_for(a.kernel), *boot_args(a.kernel, a.iso), '-display', 'none',
+           '-serial', f'file:{serial}', '-no-reboot', '-m', f'{mio}M', *a.qemu]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    fin = time.time() + a.secondes
+    while time.time() < fin and proc.poll() is None:
+        if marqueur_vu(serial, a.marqueur):
+            break
+        time.sleep(0.1)
+    vu = marqueur_vu(serial, a.marqueur)
+    proc.terminate()
+    proc.wait()
+    return vu
+
+
+def plus_petit_qui_passe(essai, bas, haut):
+    while bas < haut:
+        milieu = (bas + haut) // 2
+        if essai(milieu):
+            haut = milieu
+        else:
+            bas = milieu + 1
+    return bas
+
+
+def cmd_ram(a):
+    dossier = os.path.join(os.getcwd(), 'build', 'mesure')
+    os.makedirs(dossier, exist_ok=True)
+    serial = os.path.join(dossier, 'ram.log')
+    essais = []
+
+    def essai(mio):
+        ok = demarre_avec(a, mio, serial)
+        essais.append(mio)
+        print(f'{mio:>6} Mio : {"démarre" if ok else "ne démarre pas"}')
+        return ok
+
+    if not essai(a.max):
+        print(f'marqueur « {a.marqueur} » absent même avec {a.max} Mio')
+        return 1
+    mini = plus_petit_qui_passe(essai, 1, a.max)
+    print(f'RAM minimale : {mini} Mio ({len(essais)} démarrages)')
+    if a.budget and mini > a.budget:
+        print(f'budget dépassé : {mini} Mio > {a.budget} Mio')
+        return 1
+    return 0
+
+
+def cpu_ticks(pid):
+    with open(f'/proc/{pid}/stat') as f:
+        fields = f.read().rsplit(')', 1)[1].split()
+    return int(fields[11]) + int(fields[12])
+
+
+def cmd_repos(a):
+    cmd = [qemu_for(a.kernel), *boot_args(a.kernel), '-display', 'none', '-serial', 'null',
+           '-no-reboot', '-accel', 'kvm', *a.qemu]
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+    try:
+        time.sleep(3)  # laisser démarrer
+        hz = os.sysconf('SC_CLK_TCK')
+        t0, c0 = time.time(), cpu_ticks(proc.pid)
+        time.sleep(a.secondes)
+        t1, c1 = time.time(), cpu_ticks(proc.pid)
+    finally:
+        proc.terminate()
+        proc.wait()
+    pct = 100 * (c1 - c0) / hz / (t1 - t0)
+    print(f'CPU hôte de la VM au repos : {pct:.1f} %')
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawTextHelpFormatter)
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    t = sub.add_parser('taille')
+    t.add_argument('kernel')
+    t.add_argument('--budget', type=int)
+    p = sub.add_parser('profil')
+    p.add_argument('kernel')
+    p.add_argument('--secondes', type=int, default=60,
+                   help='délai maximum (défaut 60)')
+    p.add_argument('--marqueur', default='kmain OK',
+                   help='texte série après lequel on arrête (défaut « kmain OK »)')
+    p.add_argument('--top', type=int, default=10)
+    p.add_argument('--iso', help='démarrer cette ISO (GRUB) au lieu de -kernel')
+    r = sub.add_parser('repos')
+    r.add_argument('kernel')
+    r.add_argument('--secondes', type=int, default=5)
+    m = sub.add_parser('ram')
+    m.add_argument('kernel')
+    m.add_argument('--max', type=int, default=64, help='RAM de départ en Mio (défaut 64)')
+    m.add_argument('--budget', type=int, help='RAM minimale tolérée, en Mio')
+    m.add_argument('--marqueur', default='kmain OK')
+    m.add_argument('--secondes', type=int, default=5, help='délai par démarrage (défaut 5)')
+    m.add_argument('--iso', help='démarrer cette ISO au lieu de -kernel')
+    # Tout ce qui suit « -- » part tel quel à QEMU.
+    argv = sys.argv[1:]
+    extra = []
+    if '--' in argv:
+        i = argv.index('--')
+        argv, extra = argv[:i], argv[i + 1:]
+    a = ap.parse_args(argv)
+    a.qemu = extra
+    return {'taille': cmd_taille, 'profil': cmd_profil,
+            'repos': cmd_repos, 'ram': cmd_ram}[a.cmd](a)
+
+
+if __name__ == '__main__':
+    sys.exit(main())

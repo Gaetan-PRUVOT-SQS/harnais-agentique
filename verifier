@@ -1,0 +1,683 @@
+#!/usr/bin/env python3
+"""Vérifie la config de ~/.agents : hooks, lint, scans, skills et budget du listing, puis suites des outils."""
+import argparse
+import fnmatch
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import tomllib
+from pathlib import Path, PurePosixPath
+
+import yaml
+
+RACINE = Path(__file__).resolve().parent
+MOTEUR = Path.home() / '.zcode'
+MAX_DESCRIPTION = 1536
+MAX_DESCRIPTION_SKILL = 1024
+BUDGET_LISTING = 230000
+OUTILS_ECRITURE = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
+MARGE_BUDGET = 0.95
+LIGNES_ECHEC = 30
+DELAI = 900
+NON_LANCE = 3
+MARQUE_NON_LANCE = 'tests non lancés'
+SHEBANG_SHELL = re.compile(r'^#!\s*/(?:usr/)?bin/(?:env\s+)?(?:ba|da|k)?sh(?:\s|$)')
+SHEBANG_POSIX = re.compile(r'^#!\s*/(?:usr/)?bin/(?:env\s+)?(?:da)?sh(?:\s|$)')
+EXCEPTIONS_BASHISMES = {
+    'skills/shell-maison/scripts/cas/10-dollar-quote.sh',
+}
+
+
+def frontmatter(texte):
+    if not texte.startswith('---\n'):
+        raise ValueError('frontmatter absent')
+    fin = texte.find('\n---', 3)
+    if fin < 0:
+        raise ValueError('frontmatter non fermé')
+    donnees = yaml.safe_load(texte[4:fin])
+    if not isinstance(donnees, dict):
+        raise TypeError('frontmatter qui n\'est pas un objet')
+    return donnees
+
+
+def entree_listing(nom, donnees):
+    if donnees.get('disable-model-invocation') is True:
+        return 0
+    texte = str(donnees.get('description') or '') + str(donnees.get('when_to_use') or '')
+    return len(nom) + min(len(texte), MAX_DESCRIPTION)
+
+
+def taille_listing(skills):
+    return sum(entree_listing(nom, frontmatter(chemin.read_text(encoding='utf-8'))) for nom, chemin in skills)
+
+
+def plugins_actifs(settings, installes, dossier_plugins):
+    actifs = [cle for cle, actif in settings.get('enabledPlugins', {}).items() if actif]
+    for cle in actifs:
+        for installation in installes.get('plugins', {}).get(cle, [])[:1]:
+            yield cle.split('@')[0], dossier_plugins / installation['installPath']
+
+
+def skills_listes(skills, liens, plugins):
+    yield from ((d.name, d / 'SKILL.md') for d in sorted(skills.iterdir()) if (d / 'SKILL.md').is_file())
+    for chemin in sorted((liens / 'synced').glob('*/*/SKILL.md')):
+        yield 'anthropic-skills:' + chemin.parent.name, chemin
+    for nom, dossier in plugins:
+        for chemin in sorted(dossier.glob('skills/*/SKILL.md')):
+            yield nom + ':' + chemin.parent.name, chemin
+
+
+def lire_json(chemin):
+    try:
+        return json.loads(chemin.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def controle_budget(skills=RACINE / 'skills', moteur=MOTEUR):
+    chemin = moteur / 'settings.json'
+    settings = lire_json(chemin)
+    env = settings.get('env') if isinstance(settings.get('env'), dict) else {}
+    budget = env.get('SLASH_COMMAND_TOOL_CHAR_BUDGET')
+    if str(budget or '').isdigit():
+        plugins = plugins_actifs(
+            settings,
+            lire_json(moteur / 'plugins' / 'installed_plugins.json'),
+            moteur / 'plugins',
+        )
+        total = taille_listing(skills_listes(skills, moteur / 'skills', plugins))
+        return verdict_budget(total, int(budget))
+    total = taille_listing(skills_listes(skills, moteur / 'skills', ()))
+    return verdict_budget(total, BUDGET_LISTING)
+
+
+def verdict_budget(total, budget):
+    plafond = int(budget * MARGE_BUDGET)
+    return total <= plafond, f'listing {total} caractères, plafond {plafond} ({MARGE_BUDGET:.0%} de {budget})'
+
+
+EVENEMENTS_HOOKS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop')
+DELAIS_HOOKS = {
+    'SessionStart': 15, 'UserPromptSubmit': 30, 'PreToolUse': 10, 'PostToolUse': 150, 'Stop': 400,
+}
+FILTRES_HOOKS = {
+    'PostToolUse': 'Write|Edit|MultiEdit|NotebookEdit|ApplyPatch',
+}
+REFUS_SECRETS = (
+    'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/.credentials.json)', 'Read(**/.git-credentials)',
+    'Read(**/.netrc)', 'Read(**/.pgpass)', 'Read(**/.aws/credentials)', 'Read(**/.ssh/id_rsa)',
+    'Read(**/.ssh/id_ecdsa)', 'Read(**/.ssh/id_ed25519)', 'Read(**/.ssh/id_dsa)',
+    'Read(**/.config/gh/hosts.yml)',
+    'Edit(**/.env)', 'Edit(**/.env.local)', 'Edit(**/.env.production)', 'Edit(**/.env.development)',
+    'Edit(**/.credentials.json)', 'Edit(**/.git-credentials)', 'Edit(**/.netrc)', 'Edit(**/.pgpass)',
+    'Edit(**/.aws/credentials)', 'Edit(**/.ssh/id_rsa)', 'Edit(**/.ssh/id_ecdsa)',
+    'Edit(**/.ssh/id_ed25519)', 'Edit(**/.ssh/id_dsa)', 'Edit(**/.config/gh/hosts.yml)',
+    'Write(**/.env)', 'Write(**/.env.local)', 'Write(**/.env.production)', 'Write(**/.env.development)',
+    'Write(**/.credentials.json)', 'Write(**/.git-credentials)', 'Write(**/.netrc)', 'Write(**/.pgpass)',
+    'Write(**/.aws/credentials)', 'Write(**/.ssh/id_rsa)', 'Write(**/.ssh/id_ecdsa)',
+    'Write(**/.ssh/id_ed25519)', 'Write(**/.ssh/id_dsa)', 'Write(**/.config/gh/hosts.yml)',
+    'Bash(python*.env*)', 'Bash(python*.netrc*)', 'Bash(python*.pgpass*)', 'Bash(python*.credentials*)',
+    'Bash(python*.git-credentials*)', 'Bash(python*.ssh/id_*)', 'Bash(node*.env*)', 'Bash(perl*.env*)',
+    'Bash(ruby*.env*)', 'Bash(bash*.env*)', 'Bash(sh*.env*)', 'Bash(source *.env*)', 'Bash(. *.env*)',
+)
+PLUGIN_COUPE = 'agent-browser'
+MARQUE_HARNESS = 'Texte étranger'
+
+
+def commande_hook(racine, evenement):
+    return f'AGENT_CONFIG_ROOT={racine} python3 -E -s {racine / "hooks" / "dispatch.py"} {evenement}'
+
+
+def problemes_hooks(donnees, racine):
+    hooks = donnees.get('hooks') if isinstance(donnees, dict) else None
+    if not isinstance(hooks, dict):
+        yield 'hooks absent'
+        return
+    if hooks.get('enabled') is not True:
+        yield 'enabled: true attendu'
+    evenements = hooks.get('events')
+    if not isinstance(evenements, dict):
+        yield 'events absent'
+        return
+    for evenement in evenements:
+        if evenement not in DELAIS_HOOKS:
+            yield f'{evenement} : événement inattendu'
+    for evenement in EVENEMENTS_HOOKS:
+        if evenement not in evenements:
+            yield f'{evenement} : absent'
+            continue
+        groupes = evenements[evenement]
+        if not isinstance(groupes, list) or len(groupes) != 1 or not isinstance(groupes[0], dict):
+            yield f'{evenement} : un seul groupe attendu'
+            continue
+        groupe = groupes[0]
+        filtre = FILTRES_HOOKS.get(evenement)
+        if filtre:
+            if groupe.get('matcher') != filtre:
+                yield f'{evenement} : filtre {groupe.get("matcher")}'
+        elif groupe.get('matcher'):
+            yield f'{evenement} : filtre inattendu'
+        entrees = groupe.get('hooks')
+        if not isinstance(entrees, list) or len(entrees) != 1 or not isinstance(entrees[0], dict):
+            yield f'{evenement} : une seule commande attendue'
+            continue
+        hook = entrees[0]
+        if 'statusMessage' in hook:
+            yield f'{evenement} : statusMessage'
+        if hook.get('type') != 'command':
+            yield f'{evenement} : type {hook.get("type")}'
+        if hook.get('command') != commande_hook(racine, evenement):
+            yield f'{evenement} : commande {hook.get("command")}'
+        if hook.get('timeout') != DELAIS_HOOKS[evenement]:
+            yield f'{evenement} : délai {hook.get("timeout")}'
+
+
+def motifs_bash(refus):
+    for regle in refus:
+        if isinstance(regle, str) and regle.startswith('Bash(') and regle.endswith(')'):
+            yield regle[5:-1]
+
+
+def commande_couverte(commande, motifs):
+    texte = commande.lstrip()
+    morceaux = [texte, *(morceau.strip() for morceau in re.split(r'\|\||&&|[;|\n]', texte))]
+    return any(morceau and fnmatch.fnmatchcase(morceau, motif) for morceau in morceaux for motif in motifs)
+
+
+def problemes_refus(deny, disabled):
+    if not isinstance(deny, list) or not all(isinstance(regle, str) for regle in deny):
+        yield 'deny absent ou illisible'
+        return
+    for regle in REFUS_SECRETS:
+        if regle not in deny:
+            yield f'refus absent : {regle}'
+    if not isinstance(disabled, list) or PLUGIN_COUPE not in disabled:
+        yield f'{PLUGIN_COUPE} encore chargé'
+
+
+def problemes_harnais(texte):
+    if MARQUE_HARNESS not in texte or 'CLAUDE.local.md' not in texte:
+        yield 'harnais muet sur le CLAUDE.md de projet'
+    if 'ne lève pas les refus de secrets' not in texte:
+        yield 'harnais muet sur un hook mort'
+
+
+def compacte(texte):
+    return ' '.join(texte.split())
+
+
+MARQUES_REGLE_TESTS = (
+    ('agents', "l'oracle est l'état final lu par une commande fraîche du fil principal",
+     "règle muette sur l'oracle d'état final"),
+    ('boucle', "Le rapport d'un sous-agent se revérifie ici",
+     'boucle muette sur le rapport de sous-agent'),
+    ('skill', "La suite et les critères d'acceptation se tiennent tous les deux",
+     'skill muet sur les deux niveaux'),
+    ('skill', "Le contrôle lit l'état. Il ne le réécrit pas avant la note.",
+     'skill muet sur la lecture seule du contrôle'),
+    ('agents', "puis l'automatisation maximale",
+     "règle muette sur l'automatisation après le commit"),
+    ('boucle', 'Automatisation maximale, après le commit',
+     "boucle muette sur l'automatisation"),
+    ('agents', 'Un Stop vert ne tient pas lieu de validation',
+     'règle muette sur la limite du Stop'),
+    ('boucle', 'Le Stop ne lance que la première commande reconnue',
+     'boucle muette sur le lanceur unique'),
+    ('agents', 'échouer sur une implémentation fausse',
+     'règle muette sur le test qui recopie le code'),
+    ('agents', "Une lecture, un plan ou un résumé n'est pas une vérification",
+     'règle muette sur la preuve environnementale'),
+    ('skill', "l'ancien système sur des entrées tirées",
+     'skill muet sur le différentiel'),
+    ('revue', "Le récit d'un agent ne prouve rien",
+     'revue muette sur le récit'),
+    ('agents', 'La base de test prime quand elle donne le résultat',
+     'règle muette sur la base qui prime'),
+    ('agents', "L'absence de plantage ne prouve pas le comportement",
+     "règle muette sur l'oracle implicite"),
+    ('agents', 'Un test sans assertion bloque le Stop',
+     'règle muette sur le test sans assertion'),
+    ('agents', "Un test qui n'affirme que la vérité ou la non-nullité bloque le Stop",
+     'règle muette sur l\'oracle faible'),
+    ('agents', 'au moins 90 % sur chaque couverture rapportée',
+     'règle muette sur le plancher de 90 %'),
+    ('agents', 'le code C respecte la norme 42, seul le bandeau 42 est exclu',
+     'règle muette sur la norme 42'),
+    ('agents', "l'adresse d'auteur et de committer passe par l'environnement",
+     "règle muette sur l'identité GitHub"),
+    ('agents', 'le code C se compile avec gcc -Wall -Wextra -Werror',
+     'règle muette sur gcc -Wall -Wextra -Werror'),
+)
+FICHIERS_REGLE_TESTS = (
+    ('agents', 'AGENTS.md'),
+    ('skill', 'skills/iso-29119/SKILL.md'),
+    ('boucle', 'skills/tests-regression-auto/SKILL.md'),
+    ('revue', 'skills/revue-validation/SKILL.md'),
+)
+NOM_REGLE_TESTS = 'règle de test : phrases décisives'
+SKILLS_REGLE_TESTS = {
+    'skills/iso-29119/SKILL.md',
+    'skills/tests-regression-auto/SKILL.md',
+    'skills/revue-validation/SKILL.md',
+}
+
+
+def problemes_regle_tests(agents, skill, boucle, revue):
+    textes = {
+        'agents': compacte(agents),
+        'skill': compacte(skill),
+        'boucle': compacte(boucle),
+        'revue': compacte(revue),
+    }
+    for cle, marque, message in MARQUES_REGLE_TESTS:
+        if marque not in textes[cle]:
+            yield message
+
+
+def controle_regle_tests(racine=RACINE):
+    try:
+        textes = {cle: (racine / chemin).read_text(encoding='utf-8') for cle, chemin in FICHIERS_REGLE_TESTS}
+    except OSError as erreur:
+        return False, f'règle de test illisible ({erreur.__class__.__name__})'
+    problemes = list(problemes_regle_tests(
+        textes['agents'], textes['skill'], textes['boucle'], textes['revue']))
+    return not problemes, '\n'.join(problemes) or f'{len(MARQUES_REGLE_TESTS)} phrases'
+
+
+def lire_toml(chemin):
+    with chemin.open('rb') as fichier:
+        return tomllib.load(fichier)
+
+
+def controle_hooks_zcode(chemin=None, racine=RACINE):
+    chemin = chemin or (MOTEUR / 'cli' / 'config.json')
+    try:
+        donnees = json.loads(Path(chemin).read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return None, f'absent : {chemin}'
+    except (OSError, json.JSONDecodeError) as erreur:
+        return False, f'{chemin} illisible ({erreur.__class__.__name__})'
+    problemes = list(problemes_hooks(donnees, racine))
+    return not problemes, '\n'.join(problemes) or f'{len(EVENEMENTS_HOOKS)} hooks, python3 -E -s'
+
+
+def controle_refus(chemin=None):
+    chemin = chemin or (Path.home() / '.grok' / 'config.toml')
+    try:
+        config = lire_toml(chemin)
+    except FileNotFoundError:
+        return None, f'absent : {chemin}'
+    except (OSError, tomllib.TOMLDecodeError) as erreur:
+        return False, f'{chemin} illisible ({erreur.__class__.__name__})'
+    deny = config.get('permission', {}).get('deny') if isinstance(config.get('permission'), dict) else None
+    plugins = config.get('plugins') if isinstance(config.get('plugins'), dict) else {}
+    problemes = list(problemes_refus(deny, plugins.get('disabled')))
+    return not problemes, '\n'.join(problemes) or f'{len(REFUS_SECRETS)} refus, {PLUGIN_COUPE} coupé'
+
+
+def controle_harnais(chemin=None):
+    chemin = chemin or (Path.home() / '.grok' / 'rules' / '20-harnais-grok.md')
+    try:
+        texte = Path(chemin).read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return None, f'absent : {chemin}'
+    except OSError as erreur:
+        return False, f'{chemin} illisible ({erreur.__class__.__name__})'
+    problemes = list(problemes_harnais(texte))
+    return not problemes, '\n'.join(problemes) or f'harnais {len(texte)} caractères'
+
+
+def probleme_description(texte):
+    if not isinstance(texte, str) or not texte.strip():
+        return 'description vide'
+    if len(texte) > MAX_DESCRIPTION_SKILL:
+        return f'description de {len(texte)} caractères, plafond {MAX_DESCRIPTION_SKILL}'
+    return None
+
+
+def probleme_skill(dossier, liens):
+    fichier = dossier / 'SKILL.md'
+    if not dossier.is_dir():
+        return 'fichier parasite dans skills/'
+    if not fichier.is_file():
+        return 'SKILL.md absent'
+    try:
+        donnees = frontmatter(fichier.read_text(encoding='utf-8'))
+    except (ValueError, TypeError, yaml.YAMLError) as erreur:
+        return f'frontmatter invalide ({str(erreur).splitlines()[0]})'
+    if donnees.get('name') != dossier.name:
+        return f'name « {donnees.get("name")} » différent du dossier'
+    probleme = probleme_description(donnees.get('description'))
+    if probleme:
+        return probleme
+    if liens is None:
+        return None
+    lien = liens / dossier.name
+    if not lien.is_symlink() or lien.resolve() != dossier.resolve():
+        return f'lien absent ou faux dans {liens}'
+    return None
+
+
+def problemes_structure(skills, liens):
+    exiger_liens = liens.is_dir()
+    for dossier in sorted(skills.iterdir()):
+        probleme = probleme_skill(dossier, liens if exiger_liens else None)
+        if probleme:
+            yield f'{dossier.name} : {probleme}'
+    if not exiger_liens:
+        return
+    for lien in sorted(liens.iterdir()):
+        if lien.name != 'synced' and (not lien.exists() or lien.resolve().parent != skills.resolve()):
+            yield f'{lien.name} : lien mort ou hors de {skills}'
+
+
+def controle_structure(skills=RACINE / 'skills', liens=MOTEUR / 'skills'):
+    problemes = list(problemes_structure(skills, liens))
+    if problemes:
+        return False, '\n'.join(problemes)
+    nombre = sum(1 for _ in skills.iterdir())
+    suite = 'liens complets' if liens.is_dir() else 'sans dossier de liens'
+    return True, f'{nombre} skills, {suite}'
+
+
+def probleme_agent(fichier, liens):
+    try:
+        donnees = frontmatter(fichier.read_text(encoding='utf-8'))
+    except (ValueError, TypeError, yaml.YAMLError) as erreur:
+        return f'frontmatter invalide ({str(erreur).splitlines()[0]})'
+    if donnees.get('name') != fichier.stem:
+        return f'name « {donnees.get("name")} » différent du fichier'
+    if not str(donnees.get('description') or '').strip():
+        return 'description vide'
+    outils = {outil.strip() for outil in str(donnees.get('tools') or '').split(',') if outil.strip()}
+    if not outils:
+        return 'liste d\'outils absente'
+    if outils & OUTILS_ECRITURE:
+        return 'outil d\'écriture : un seul écrivain'
+    if liens is None:
+        return None
+    lien = liens / fichier.name
+    if not lien.is_symlink() or lien.resolve() != fichier.resolve():
+        return f'lien absent ou faux dans {liens}'
+    return None
+
+
+def problemes_agents(agents, liens):
+    exiger_liens = liens.is_dir()
+    for fichier in sorted(agents.iterdir()):
+        probleme = probleme_agent(fichier, liens if exiger_liens else None) if fichier.suffix == '.md' \
+            else 'fichier parasite dans agents/'
+        if probleme:
+            yield f'{fichier.name} : {probleme}'
+    if not exiger_liens:
+        return
+    for lien in sorted(liens.iterdir()):
+        if not lien.exists() or lien.resolve().parent != agents.resolve():
+            yield f'{lien.name} : lien mort ou hors de {agents}'
+
+
+def controle_agents(agents=RACINE / 'agents', liens=MOTEUR / 'agents'):
+    problemes = list(problemes_agents(agents, liens))
+    if problemes:
+        return False, '\n'.join(problemes)
+    nombre = sum(1 for _ in agents.iterdir())
+    suite = 'liens complets' if liens.is_dir() else 'sans dossier de liens'
+    return True, f'{nombre} agents, {suite}'
+
+
+def fichiers_suivis(*dossiers):
+    sortie = subprocess.run(['git', '-C', str(RACINE), 'ls-files', '-co', '--exclude-standard', '--', *dossiers],
+                            capture_output=True, text=True, check=True).stdout
+    return [RACINE / ligne for ligne in sortie.splitlines() if (RACINE / ligne).is_file()]
+
+
+def premiere_ligne(chemin):
+    try:
+        with chemin.open('rb') as fichier:
+            return fichier.readline(200).decode(errors='replace')
+    except OSError:
+        return ''
+
+
+def scripts_shell(posix_seulement=False):
+    motif = SHEBANG_POSIX if posix_seulement else SHEBANG_SHELL
+    return [str(f) for f in fichiers_suivis('hooks', 'skills')
+            if (not posix_seulement and f.suffix in ('.sh', '.bash')) or motif.match(premiere_ligne(f))]
+
+
+def commande(argv, dossier=RACINE, apres=None, env_extra=None):
+    def lancer():
+        env = dict(os.environ, PYTHONDONTWRITEBYTECODE='1')
+        if env_extra:
+            env.update(env_extra)
+        try:
+            fini = subprocess.run(argv, cwd=dossier, capture_output=True, text=True, env=env,
+                                  timeout=DELAI, check=False)
+        except FileNotFoundError:
+            return None, f'non lancé, outil absent : {argv[0]}'
+        except subprocess.TimeoutExpired:
+            return False, f'délai de {DELAI} s dépassé'
+        finally:
+            if apres:
+                subprocess.run(apres, cwd=dossier, capture_output=True, timeout=DELAI, check=False)
+        sortie = fini.stdout + fini.stderr
+        return verdict_code(fini.returncode, sortie), sortie
+    return lancer
+
+
+def verdict_code(code, sortie):
+    if code == 0:
+        return True
+    return None if code == NON_LANCE or MARQUE_NON_LANCE in sortie else False
+
+
+def lint_shell():
+    scripts = scripts_shell()
+    if not scripts:
+        return True, 'aucun script'
+    return commande(['shellcheck', '-S', 'info', '-x', '-e', 'SC1091', *scripts])()
+
+
+def bashismes():
+    exceptions = {str(RACINE / chemin) for chemin in EXCEPTIONS_BASHISMES}
+    scripts = [s for s in scripts_shell(posix_seulement=True) if s not in exceptions]
+    if not scripts:
+        return True, 'aucun script sh'
+    return commande(['checkbashisms', '-p', *scripts])()
+
+
+def controle_baseline():
+    verdict = True
+    sorties = []
+    for cible in (RACINE / 'hooks', RACINE / 'verifier'):
+        ok, sortie = commande([
+            'bash', str(RACINE / 'hooks/cyber-scan.sh'),
+            '--root', str(RACINE), str(cible),
+        ])()
+        sorties.append(sortie)
+        if ok is False:
+            verdict = False
+        elif ok is None and verdict is not False:
+            verdict = None
+    return verdict, ''.join(sorties)
+
+
+def controle_secrets():
+    verdict = True
+    sorties = []
+    for dossier in ('hooks', 'skills'):
+        ok, sortie = commande([
+            'gitleaks', 'dir', '--no-banner', '--redact', '--exit-code', '2',
+            str(RACINE / dossier),
+        ])()
+        sorties.append(sortie)
+        if ok is False:
+            verdict = False
+        elif ok is None and verdict is not False:
+            verdict = None
+    return verdict, ''.join(sorties)
+
+
+def controle_sast():
+    return commande([
+        'semgrep', 'scan', '--metrics=off', '--disable-version-check', '--quiet', '--error',
+        '--config', 'p/python', '--config', 'p/owasp-top-ten', str(RACINE / 'hooks'),
+    ], env_extra={'SEMGREP_SEND_METRICS': 'off'})()
+
+
+def controles_rapides():
+    return [
+        ('hooks (verify.py)', commande([sys.executable, 'hooks/verify.py'])),
+        ('tests du verifier', commande([sys.executable, '-m', 'pytest', '-q', 'tests'])),
+        ('ruff', commande(['ruff', 'check', '--no-cache', '.'])),
+        ('shellcheck', lint_shell),
+        ('checkbashisms', bashismes),
+        ('baseline (cyber-scan)', controle_baseline),
+        ('secrets (gitleaks)', controle_secrets),
+        ('sast (semgrep)', controle_sast),
+        ('skills : structure et liens', controle_structure),
+        ('skills : budget du listing', controle_budget),
+        ('agents : structure et liens', controle_agents),
+        ('hooks zcode : python isolé', controle_hooks_zcode),
+        ('permissions : secrets sans le hook', controle_refus),
+        ('harnais : CLAUDE.md étranger', controle_harnais),
+        (NOM_REGLE_TESTS, controle_regle_tests),
+    ]
+
+
+CONTROLES_CODE = {
+    'hooks (verify.py)', 'tests du verifier', 'ruff', 'shellcheck', 'checkbashisms',
+    'baseline (cyber-scan)', 'secrets (gitleaks)', 'sast (semgrep)',
+    'hooks zcode : python isolé', 'permissions : secrets sans le hook', 'harnais : CLAUDE.md étranger',
+    NOM_REGLE_TESTS,
+}
+CONTROLES_SKILLS = {'skills : structure et liens', 'skills : budget du listing'}
+
+
+def noms_pour(chemin):
+    """Contrôles rapides qu'un fichier changé peut casser. Docs, mémoire et regles/ restent vides."""
+    partiel = PurePosixPath(chemin)
+    if partiel.as_posix() == '.cyber-ignore':
+        return {'baseline (cyber-scan)'}
+    if partiel.as_posix() == '.gitleaksignore':
+        return {'secrets (gitleaks)'}
+    tete = partiel.parts[0] if partiel.parts else ''
+    if tete in ('hooks', 'tests') or partiel.name in ('verifier', 'pyproject.toml'):
+        return set(CONTROLES_CODE)
+    if partiel.as_posix() == 'AGENTS.md':
+        return {NOM_REGLE_TESTS}
+    if partiel.as_posix() == 'DESIGN.md':
+        return {'tests du verifier'}
+    if tete == 'agents':
+        return {'agents : structure et liens'}
+    if tete != 'skills':
+        return set()
+    noms = set(CONTROLES_SKILLS)
+    noms.add('secrets (gitleaks)')
+    if partiel.as_posix() == 'skills/validation-gate/SKILL.md':
+        noms.add('tests du verifier')
+    if partiel.as_posix() in SKILLS_REGLE_TESTS:
+        noms.add(NOM_REGLE_TESTS)
+    if partiel.suffix in ('.c', '.h'):
+        noms.add('hooks (verify.py)')
+    if partiel.suffix in ('.sh', '.bash', ''):
+        noms |= {'shellcheck', 'checkbashisms'}
+    return noms
+
+
+def fichiers_changes(chemins, racine=RACINE):
+    for chemin in chemins:
+        dossier = racine / chemin
+        if dossier.is_dir():
+            yield from (str(f.relative_to(racine)) for f in sorted(dossier.rglob('*')) if f.is_file())
+        else:
+            yield chemin
+
+
+def controles_pour(chemins, controles):
+    noms = set().union(*(noms_pour(chemin) for chemin in chemins)) if chemins else set()
+    return [controle for controle in controles if controle[0] in noms]
+
+
+def suites_python(dossier, nom):
+    controles = [(f'{nom} : pytest', commande([sys.executable, '-m', 'pytest', '-q'], dossier)),
+                 (f'{nom} : ruff', commande(['ruff', 'check', '--no-cache', '.'], dossier))]
+    if '[tool.mypy]' in (dossier / 'pyproject.toml').read_text(encoding='utf-8'):
+        controles.append((f'{nom} : mypy', commande(['mypy', '.'], dossier)))
+    return controles
+
+
+def cibles_make(makefile):
+    return re.findall(r'^(verifier|test|clean):', makefile.read_text(encoding='utf-8'), re.MULTILINE)
+
+
+def controle_make(makefile):
+    cibles = cibles_make(makefile)
+    cible = 'verifier' if 'verifier' in cibles else ('test' if 'test' in cibles else None)
+    if cible is None:
+        return None
+    dossier = makefile.parent
+    nettoyage = ['make', '-C', str(dossier), 'clean'] if 'clean' in cibles else None
+    return (f'make {cible} : {dossier.relative_to(RACINE)}',
+            commande(['make', '-C', str(dossier), cible], apres=nettoyage))
+
+
+def controles_complets():
+    controles = controles_rapides()
+    for pyproject in sorted((RACINE / 'skills').glob('*/scripts/pyproject.toml')):
+        controles += suites_python(pyproject.parent, pyproject.parent.parent.name)
+    controles += suites_python(RACINE / 'statusline', 'statusline')
+    for bats in sorted({f.parent for f in fichiers_suivis('skills') if f.suffix == '.bats'}):
+        controles.append((f'bats : {bats.relative_to(RACINE)}', commande(['bats', str(bats)])))
+    makes = (controle_make(f) for f in fichiers_suivis('skills') if f.name == 'Makefile')
+    return controles + [controle for controle in makes if controle]
+
+
+def etat(ok):
+    return 'OK' if ok else ('NL' if ok is None else 'KO')
+
+
+def afficher(nom, ok, sortie, duree):
+    print(f'{etat(ok)}  {nom:<55} {duree:6.1f} s', flush=True)
+    lignes = sortie.strip().splitlines()
+    if not ok or (lignes and len(lignes) == 1):
+        for ligne in lignes[-LIGNES_ECHEC:]:
+            print('    ' + ligne)
+
+
+def bilan(etats):
+    ko, non_lances = etats.count('KO'), etats.count('NL')
+    if not ko and not non_lances:
+        return 'Bilan : tout est vert', 0
+    return f'Bilan : {ko} KO, {non_lances} non lancés', (1 if ko else NON_LANCE)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--rapide', action='store_true',
+                        help='hooks, lint, scans, skills et budget seulement')
+    parser.add_argument('--pour', nargs='+', metavar='CHEMIN',
+                        help='ne garder que les contrôles concernés par ces fichiers de la config')
+    args = parser.parse_args()
+    controles = controles_rapides() if args.rapide else controles_complets()
+    if args.pour:
+        controles = controles_pour(list(fichiers_changes(args.pour)), controles)
+        if not controles:
+            print('Rien à vérifier pour : ' + ', '.join(args.pour))
+            return 0
+    etats = []
+    for nom, controle in controles:
+        debut = time.monotonic()
+        ok, sortie = controle()
+        afficher(nom, ok, sortie, time.monotonic() - debut)
+        etats.append(etat(ok))
+    message, code = bilan(etats)
+    print(message)
+    return code
+
+
+if __name__ == '__main__':
+    sys.exit(main())

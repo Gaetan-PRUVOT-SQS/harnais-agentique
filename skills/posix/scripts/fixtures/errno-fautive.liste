@@ -1,0 +1,4 @@
+EINVAL	22	Argument invalide
+ERANGE	22	Hors limites
+EIO	0	Nul
+erreur	5	Minuscule

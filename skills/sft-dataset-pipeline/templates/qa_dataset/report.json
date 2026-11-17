@@ -1,0 +1,9 @@
+{
+  "fixtures_path": "/home/gaetan/.agents/skills/sft-dataset-pipeline/templates/qa_dataset/fixtures.json",
+  "total": 15,
+  "passed": 15,
+  "failed": 0,
+  "pass_rate": 100.0,
+  "failures": [],
+  "corrected_path": "/home/gaetan/.agents/skills/sft-dataset-pipeline/templates/qa_dataset/corrected.jsonl"
+}

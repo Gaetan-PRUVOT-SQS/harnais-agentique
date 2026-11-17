@@ -1,0 +1,7 @@
+version = 1
+
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Les contributeurs du projet"
+SPDX-License-Identifier = "GPL-2.0-or-later"

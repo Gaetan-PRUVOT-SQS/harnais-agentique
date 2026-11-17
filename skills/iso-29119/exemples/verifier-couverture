@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+nom=${0##*/}
+
+usage()
+{
+	printf 'usage: %s RESUME_GCOV [SEUIL]\n' "$nom" >&2
+	exit 2
+}
+
+verifier()
+{
+	awk -v seuil="$2" -v nom="$nom" '
+	function erreur(message) {
+		print nom ": " message | "cat 1>&2"
+		ko = 1
+	}
+	/^(Lines executed|Taken at least once|Condition outcomes covered):/ {
+		mesure = substr($0, 1, index($0, ":") - 1)
+		valeur = substr($0, index($0, ":") + 1)
+		sub(/%.*/, "", valeur)
+		vues[mesure] = 1
+		if (valeur + 0 < seuil)
+			erreur(mesure " " valeur "% < " seuil "%")
+		else
+			print nom ": " mesure " " valeur "%"
+	}
+	END {
+		n = split("Lines executed|Taken at least once|Condition outcomes covered", attendues, "|")
+		for (i = 1; i <= n; i++)
+			if (!(attendues[i] in vues))
+				erreur("mesure absente : " attendues[i])
+		exit ko
+	}' "$1"
+}
+
+main()
+{
+	[ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage
+	seuil=${2:-100}
+	case $seuil in
+	'' | *[!0-9]*) usage ;;
+	esac
+	if [ ! -r "$1" ]; then
+		printf '%s: %s illisible\n' "$nom" "$1" >&2
+		exit 1
+	fi
+	verifier "$1" "$seuil"
+}
+
+main "$@"
