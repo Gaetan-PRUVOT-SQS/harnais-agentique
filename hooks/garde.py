@@ -15,12 +15,20 @@ RACINES = ({Path('/'), Path('/home'), HOME, HOME / 'Bureau', HOME / 'Documents',
             HOME / '.claude', HOME / '.ssh', HOME / '.gnupg', HOME / '.local', HOME / '.config'}
            | {Path('/', d) for d in ('bin', 'boot', 'etc', 'lib', 'lib64', 'opt', 'root', 'sbin',
                                      'srv', 'usr', 'var')})
+CONFIG = Path(os.environ.get('AGENT_CONFIG_ROOT', str(HOME / '.agents')))
+MARQUEUR_DISABLE = re.compile(r'disable-[\w.-]+$')
+OUTILS_MARQUEUR = {'rm', 'mv', 'cp', 'touch', 'tee', 'truncate', 'shred', 'install', 'ln', 'chmod', 'chown', 'dd'}
+REFUS_MARQUEUR = ('Marqueur de désactivation du harnais : créé et retiré par l\'auteur à la main, '
+                  'jamais par l\'agent (plan de contrôle).')
 SECRET = re.compile(r"\.credentials\.json|\.ssh/id_[\w-]+(?!\.pub)\b|\.git-credentials|\.netrc|\.pgpass"
                     r"|gh/hosts\.yml|\.aws/credentials"
+                    r"|\.kube/config|\.docker/config\.json|application_default_credentials\.json"
+                    r"|\.npmrc|\.pypirc|(?:^|[/\s])[\w.-]*priv(?:ate)?[\w.-]*\.pem\b"
                     r"|(?:^|[\s/'\"=<])\.env(?:\.(?!example|sample|template|dist)[\w.-]+)?(?=$|[\s'\";|&)>])")
 LECTEURS = {'cat', 'less', 'more', 'head', 'tail', 'bat', 'batcat', 'grep', 'egrep', 'rg', 'sed', 'awk',
             'strings', 'xxd', 'od', 'hexdump', 'base64', 'cp', 'scp', 'rsync', 'curl', 'wget', 'nc',
             'jq', 'sort', 'uniq', 'tee', 'diff', 'vim', 'vi', 'nano', 'python', 'python3', 'node', 'perl',
+            'tar', 'unzip', 'zcat', 'gunzip', 'bzcat', 'unxz', '7z', 'dd',
             'source', '.'}
 INTERPRETEURS = {'python', 'python3', 'node', 'perl', 'ruby', 'bash', 'sh'}
 DRAPEAUX_EVAL = {
@@ -126,6 +134,31 @@ def cible(mot, cwd):
     return Path(os.path.normpath(os.path.join(cwd, mot)))
 
 
+def resolu(mot, cwd):
+    return Path(os.path.realpath(cible(mot, cwd)))
+
+
+def sous_chemin(chemin, base):
+    try:
+        chemin.relative_to(base)
+    except ValueError:
+        return False
+    return True
+
+
+def marqueur_disable(chemin):
+    base = (CONFIG / 'hooks').resolve()
+    return bool(MARQUEUR_DISABLE.match(chemin.name)) and sous_chemin(chemin.parent, base)
+
+
+def touche_marqueur(prog, args, texte, cwd):
+    if prog in OUTILS_MARQUEUR:
+        for mot in args:
+            if not mot.startswith('-') and marqueur_disable(cible(mot, cwd).resolve()):
+                return True
+    return bool(re.search(r'>+\s*[^;\n|&]*disable-[\w.-]+', texte))
+
+
 def recursif(args):
     return any(a == '--recursive' or (a.startswith('-') and not a.startswith('--') and 'r' in a.lower())
                for a in args)
@@ -211,6 +244,14 @@ def lit_secret(prog, args, texte):
     lecteur = (prog in LECTEURS or prog in INTERPRETEURS
                or (prog == 'find' and bool(EXEC_FIND.intersection(args))))
     return lecteur and bool(SECRET.search(texte))
+
+
+def lit_secret_lier(prog, args, cwd):
+    """Un lien du projet vers un secret : le chemin apparent est sain,
+    le chemin résolu ne l'est pas."""
+    if prog not in LECTEURS or prog in ('curl', 'wget', 'nc'):
+        return False
+    return any(not mot.startswith('-') and SECRET.search(str(resolu(mot, cwd))) for mot in args)
 
 
 def secret_cache(prog, texte):
@@ -496,8 +537,11 @@ def verdict_bash(commande, cwd):
         if prog == 'cd':
             cwd = apres_cd(args, cwd)
             continue
+        if touche_marqueur(prog, args, texte, cwd):
+            return decision('deny', REFUS_MARQUEUR)
         avis = avis_script(prog, args, cwd)
-        if lit_secret(prog, args, texte) or secret_cache(prog, texte) or avis == 'deny':
+        if lit_secret(prog, args, texte) or lit_secret_lier(prog, args, cwd) \
+                or secret_cache(prog, texte) or avis == 'deny':
             return decision('deny', 'Commande qui lit ou copie un fichier de secrets, refusée (AGENTS.md). '
                                     'Si c\'est voulu, l\'auteur la lance lui-même.')
         if avis == 'ask' or lecture_dynamique(prog, args, texte):
@@ -587,13 +631,33 @@ def refus_secret(ecriture):
     return decision('deny', motif + 'Si c\'est voulu, l\'auteur le lance lui-même.')
 
 
+def chemin_secret_resolu(entree, cles, cwd):
+    for cle in cles:
+        valeur = entree.get(cle)
+        if isinstance(valeur, str):
+            chemin = Path(os.path.realpath(os.path.join(cwd, os.path.expanduser(valeur))))
+            if SECRET.search(str(chemin)):
+                return True
+    return False
+
+
+def marqueur_vise(entree, cles, cwd):
+    for cle in cles:
+        valeur = entree.get(cle)
+        if isinstance(valeur, str) and marqueur_disable(cible(valeur, cwd).resolve()):
+            return True
+    return False
+
+
 def verdict(tool, entree, cwd):
     if tool in OUTILS_FICHIERS:
         cles = ('file_path', 'path', 'target_file', 'notebook_path')
         if tool in ('Read', 'Grep'):
             cles = cles + ('glob',)
-        if chemin_secret(entree, cles):
+        if chemin_secret(entree, cles) or chemin_secret_resolu(entree, cles, cwd):
             return refus_secret(tool in OUTILS_ECRITURE)
+        if tool in OUTILS_ECRITURE and marqueur_vise(entree, cles, cwd):
+            return decision('deny', REFUS_MARQUEUR)
     commande = entree.get('command')
     if tool == 'Bash' and isinstance(commande, str):
         return verdict_bash(commande, cwd)

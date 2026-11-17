@@ -1,0 +1,1 @@
+../agents/bash.md

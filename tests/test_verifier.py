@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from importlib.machinery import SourceFileLoader
@@ -100,6 +101,7 @@ def test_agents_abimes():
         'nom-faux.md : name « autre » différent du fichier',
         'sans-description.md : description vide',
         'ecrivain.md : outil d\'écriture : un seul écrivain',
+        'bash.md : outil d\'écriture : un seul écrivain',
         'sans-outils.md : liste d\'outils absente',
         'non-lie.md : lien absent ou faux dans ' + str(FIXTURES / 'abime' / 'agents-liens'),
         'parasite.txt : fichier parasite dans agents/',
@@ -155,7 +157,9 @@ def test_verdict_code_suit_la_convention_des_hooks(code, sortie, attendu):
 TOUT_LE_CODE = {
     'hooks (verify.py)', 'tests du verifier', 'ruff', 'shellcheck', 'checkbashisms',
     'baseline (cyber-scan)', 'secrets (gitleaks)', 'sast (semgrep)',
-    'hooks zcode : python isolé', 'permissions : secrets sans le hook', 'harnais : CLAUDE.md étranger',
+    'hooks zcode : python isolé', 'permissions : secrets sans le hook',
+    'interrupteurs : marqueurs de désactivation', 'skills importés : empreintes du lock',
+    'harnais : CLAUDE.md étranger',
     'règle de test : phrases décisives',
 }
 SKILLS = {
@@ -488,6 +492,27 @@ FICHIERS_PLANCHER = (
     'skills/tests-regression-auto/SKILL.md',
     'skills/justifier-choix-techniques/SKILL.md',
 )
+
+
+def test_controle_interrupteurs(tmp_path):
+    ok, sortie = verifier.controle_interrupteurs(tmp_path)
+    assert (ok, sortie) == (True, 'aucun marqueur')
+    (tmp_path / 'disable-tests-locaux').touch()
+    ok, sortie = verifier.controle_interrupteurs(tmp_path)
+    assert ok is False and 'disable-tests-locaux' in sortie
+
+
+def test_controle_lock_skills(tmp_path):
+    (tmp_path / 'skills' / 'importe').mkdir(parents=True)
+    (tmp_path / 'skills' / 'importe' / 'SKILL.md').write_text('---\nname: importe\n---\n')
+    empreinte = verifier.hash_dossier(tmp_path / 'skills' / 'importe')
+    lock = tmp_path / '.skill-lock.json'
+    lock.write_text(json.dumps({'skills': {'importe': {'harnaisHash': empreinte}}}), encoding='utf-8')
+    ok, sortie = verifier.controle_lock_skills(lock, tmp_path)
+    assert ok is True and '1 importés vérifiés' in sortie
+    (tmp_path / 'skills' / 'importe' / 'SKILL.md').write_text('---\nname: importe\n---\nmodifié\n')
+    ok, sortie = verifier.controle_lock_skills(lock, tmp_path)
+    assert ok is False and 'empreinte locale différente' in sortie
 
 
 PHRASE_GCC = 'le code C se compile avec gcc -Wall -Wextra -Werror'

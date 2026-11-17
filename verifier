@@ -2,6 +2,7 @@
 """Vérifie la config de ~/.agents : hooks, lint, scans, skills et budget du listing, puis suites des outils."""
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 import re
@@ -18,7 +19,7 @@ MOTEUR = Path.home() / '.zcode'
 MAX_DESCRIPTION = 1536
 MAX_DESCRIPTION_SKILL = 1024
 BUDGET_LISTING = 230000
-OUTILS_ECRITURE = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit'}
+OUTILS_ECRITURE = {'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'}
 MARGE_BUDGET = 0.95
 LIGNES_ECHEC = 30
 DELAI = 900
@@ -111,14 +112,20 @@ REFUS_SECRETS = (
     'Read(**/.netrc)', 'Read(**/.pgpass)', 'Read(**/.aws/credentials)', 'Read(**/.ssh/id_rsa)',
     'Read(**/.ssh/id_ecdsa)', 'Read(**/.ssh/id_ed25519)', 'Read(**/.ssh/id_dsa)',
     'Read(**/.config/gh/hosts.yml)',
+    'Read(**/.kube/config)', 'Read(**/.docker/config.json)', 'Read(**/application_default_credentials.json)',
+    'Read(**/.npmrc)', 'Read(**/.pypirc)', 'Read(**/*priv*.pem)', 'Read(**/*private*.pem)',
     'Edit(**/.env)', 'Edit(**/.env.local)', 'Edit(**/.env.production)', 'Edit(**/.env.development)',
     'Edit(**/.credentials.json)', 'Edit(**/.git-credentials)', 'Edit(**/.netrc)', 'Edit(**/.pgpass)',
     'Edit(**/.aws/credentials)', 'Edit(**/.ssh/id_rsa)', 'Edit(**/.ssh/id_ecdsa)',
     'Edit(**/.ssh/id_ed25519)', 'Edit(**/.ssh/id_dsa)', 'Edit(**/.config/gh/hosts.yml)',
+    'Edit(**/.kube/config)', 'Edit(**/.docker/config.json)', 'Edit(**/application_default_credentials.json)',
+    'Edit(**/.npmrc)', 'Edit(**/.pypirc)', 'Edit(**/*priv*.pem)', 'Edit(**/*private*.pem)',
     'Write(**/.env)', 'Write(**/.env.local)', 'Write(**/.env.production)', 'Write(**/.env.development)',
     'Write(**/.credentials.json)', 'Write(**/.git-credentials)', 'Write(**/.netrc)', 'Write(**/.pgpass)',
     'Write(**/.aws/credentials)', 'Write(**/.ssh/id_rsa)', 'Write(**/.ssh/id_ecdsa)',
     'Write(**/.ssh/id_ed25519)', 'Write(**/.ssh/id_dsa)', 'Write(**/.config/gh/hosts.yml)',
+    'Write(**/.kube/config)', 'Write(**/.docker/config.json)', 'Write(**/application_default_credentials.json)',
+    'Write(**/.npmrc)', 'Write(**/.pypirc)', 'Write(**/*priv*.pem)', 'Write(**/*private*.pem)',
     'Bash(python*.env*)', 'Bash(python*.netrc*)', 'Bash(python*.pgpass*)', 'Bash(python*.credentials*)',
     'Bash(python*.git-credentials*)', 'Bash(python*.ssh/id_*)', 'Bash(node*.env*)', 'Bash(perl*.env*)',
     'Bash(ruby*.env*)', 'Bash(bash*.env*)', 'Bash(sh*.env*)', 'Bash(source *.env*)', 'Bash(. *.env*)',
@@ -328,6 +335,52 @@ def controle_harnais(chemin=None):
         return False, f'{chemin} illisible ({erreur.__class__.__name__})'
     problemes = list(problemes_harnais(texte))
     return not problemes, '\n'.join(problemes) or f'harnais {len(texte)} caractères'
+
+
+def controle_interrupteurs(dossier=None):
+    """Marqueurs disable-* du plan de contrôle : visibles, jamais silencieux."""
+    dossier = dossier if dossier is not None else (RACINE / 'hooks')
+    try:
+        marqueurs = sorted(p.name for p in dossier.glob('disable-*') if p.is_file())
+    except OSError as erreur:
+        return False, f'{dossier} illisible ({erreur.__class__.__name__})'
+    if marqueurs:
+        return False, 'marqueurs actifs : ' + ', '.join(marqueurs)
+    return True, 'aucun marqueur'
+
+
+def hash_dossier(dossier):
+    sortie = hashlib.sha256()
+    for chemin in sorted(p for p in dossier.rglob('*') if p.is_file() and '__pycache__' not in p.parts):
+        sortie.update(str(chemin.relative_to(dossier)).encode() + b'\0'
+                      + hashlib.sha256(chemin.read_bytes()).digest())
+    return sortie.hexdigest()[:40]
+
+
+def controle_lock_skills(chemin=None, racine=RACINE):
+    """Empreintes locales des skills importés : le lock horodate, on recale."""
+    chemin = chemin if chemin is not None else (racine / '.skill-lock.json')
+    try:
+        lock = json.loads(Path(chemin).read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError) as erreur:
+        return False, f'{chemin} illisible ({erreur.__class__.__name__})'
+    competences = lock.get('skills') if isinstance(lock, dict) else None
+    if not isinstance(competences, dict):
+        return False, 'skills absents du lock'
+    problemes, verifies = [], 0
+    for nom, entree in sorted(competences.items()):
+        if not isinstance(entree, dict) or 'harnaisHash' not in entree:
+            continue
+        dossier = racine / 'skills' / nom
+        if not dossier.is_dir():
+            problemes.append(f'{nom} : dossier absent alors que le lock l\'horodate')
+        elif hash_dossier(dossier) != entree['harnaisHash']:
+            problemes.append(f'{nom} : empreinte locale différente du lock')
+        else:
+            verifies += 1
+    if problemes:
+        return False, '\n'.join(problemes)
+    return True, f'{verifies} importés vérifiés, {len(competences) - verifies} non horodatés'
 
 
 def probleme_description(texte):
@@ -543,6 +596,8 @@ def controles_rapides():
         ('agents : structure et liens', controle_agents),
         ('hooks zcode : python isolé', controle_hooks_zcode),
         ('permissions : secrets sans le hook', controle_refus),
+        ('interrupteurs : marqueurs de désactivation', controle_interrupteurs),
+        ('skills importés : empreintes du lock', controle_lock_skills),
         ('harnais : CLAUDE.md étranger', controle_harnais),
         (NOM_REGLE_TESTS, controle_regle_tests),
     ]
@@ -551,7 +606,9 @@ def controles_rapides():
 CONTROLES_CODE = {
     'hooks (verify.py)', 'tests du verifier', 'ruff', 'shellcheck', 'checkbashisms',
     'baseline (cyber-scan)', 'secrets (gitleaks)', 'sast (semgrep)',
-    'hooks zcode : python isolé', 'permissions : secrets sans le hook', 'harnais : CLAUDE.md étranger',
+    'hooks zcode : python isolé', 'permissions : secrets sans le hook',
+    'interrupteurs : marqueurs de désactivation', 'skills importés : empreintes du lock',
+    'harnais : CLAUDE.md étranger',
     NOM_REGLE_TESTS,
 }
 CONTROLES_SKILLS = {'skills : structure et liens', 'skills : budget du listing'}

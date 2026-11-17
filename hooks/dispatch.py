@@ -20,7 +20,13 @@ ROOT = Path(__file__).resolve().parent
 # Ici, seulement ce qui change d'un tour à l'autre (anciens force-*.sh :
 # ~/.agents/archives/hooks-force-20260927 et hooks-mode-20260929).
 PROMPT = ['skill-trigger-sft-dataset']
-STOP = ['gate-cyber-stop', 'gate-regression-stop', 'gate-oracle-stop']
+STOP = ['gate-cyber-stop', 'gate-secrets-stop', 'gate-regression-stop', 'gate-oracle-stop']
+OUTILS_MODIFIANTS = ('Write', 'Edit', 'NotebookEdit', 'MultiEdit', 'ApplyPatch')
+VERROU_DUREE = 6 * 3600
+GARDE_INTERROMPUE = ('Le garde a été interrompu avant sa fin (délai dépassé ou arrêt brutal) : '
+                     'au moins un appel d\'outil n\'a pas été contrôlé. Reprendre l\'action '
+                     'concernée sous contrôle avant d\'annoncer quoi que ce soit.')
+EVENEMENTS_ATTENDUS = ('SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PostToolUse', 'Stop')
 CONFIG = Path(os.environ.get('AGENT_CONFIG_ROOT', str(Path.home() / '.agents')))
 CONFIG_GATE_TIMEOUT = 240
 MARKERS = ('.git', '.mode-side-project')
@@ -137,17 +143,24 @@ def changed_since(root, stamp):
 
 
 def config_changes(stamp):
-    """Fichiers modifiés de la config git plus récents que le début du tour."""
+    """Fichiers modifiés de la config git plus récents que le début du tour.
+
+    None : dépôt git présent mais état invérifiable (status en échec).
+    Une absence de preuve n'est pas une absence de modification."""
     if not stamp.is_file():
+        return []
+    if not (CONFIG / '.git').is_dir():
         return []
     try:
         status = subprocess.run(['git', '-C', str(CONFIG), 'status', '--porcelain', '-z'],
                                 capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        return None
+    if status.returncode != 0:
+        return None
     limit = stamp.stat().st_mtime
     changes = []
-    for entry in status.stdout.split('\0') if status.returncode == 0 else []:
+    for entry in status.stdout.split('\0'):
         try:
             info = os.lstat(CONFIG / entry[3:])
         except OSError:
@@ -155,6 +168,60 @@ def config_changes(stamp):
         if len(entry) > 3 and max(info.st_mtime, info.st_ctime) > limit:
             changes.append(entry[3:])
     return changes
+
+
+def verrou_fichier(state, root):
+    return state.parent / 'locks' / (hashlib.sha256(str(root).encode()).hexdigest()[:24] + '.json')
+
+
+def autre_ecrivain(state, root, identity):
+    """Session vivante qui écrit déjà sur ce dépôt ; None si le dépôt est libre."""
+    try:
+        garde = json.loads(verrou_fichier(state, root).read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if garde.get('session') == identity:
+        return None
+    try:
+        age = time.time() - float(garde.get('ts') or 0)
+    except (TypeError, ValueError):
+        return None
+    return str(garde.get('session')) if age < VERROU_DUREE else None
+
+
+def ecrit_vivant(state, root, identity):
+    dossier = state.parent / 'locks'
+    dossier.mkdir(parents=True, exist_ok=True, mode=0o700)
+    verrou_fichier(state, root).write_text(
+        json.dumps({'session': identity, 'ts': time.time()}), encoding='utf-8')
+
+
+def libere_verrous(state, identity):
+    try:
+        fichiers = list((state.parent / 'locks').glob('*.json'))
+    except OSError:
+        return
+    for fichier in fichiers:
+        try:
+            if json.loads(fichier.read_text(encoding='utf-8')).get('session') == identity:
+                fichier.unlink()
+        except (OSError, json.JSONDecodeError):
+            continue
+
+
+def note_qualite(state, chemin, problemes):
+    """État des fichiers dont une gate de qualité a échoué : tient le Stop
+    jusqu'à ce qu'une écriture du fichier repasse propre."""
+    fichier = state / 'qualite-ko.json'
+    try:
+        etat = json.loads(fichier.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        etat = {}
+    if problemes:
+        etat[str(chemin)] = ' '.join(problemes[-1].split())[:300]
+    else:
+        etat.pop(str(chemin), None)
+    fichier.write_text(json.dumps(etat, ensure_ascii=False, indent=0, sort_keys=True), encoding='utf-8')
 
 
 def run(name, data, env, timeout=60, deadline=None):
@@ -199,6 +266,56 @@ def in_config(path):
     home = Path.home().resolve()
     return path == home or any(path.is_relative_to(home / d)
                                for d in ('.claude', '.agents'))
+
+
+def problems_registration(chemin):
+    """Événements attendus absents de l'enregistrement moteur, None si ce
+    fichier n'enregistre pas ce harnais (absent, illisible, sans dispatch.py)."""
+    try:
+        donnees = json.loads(Path(chemin).read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(donnees, dict):
+        return None
+    hooks = donnees.get('hooks')
+    if not isinstance(hooks, dict) or 'dispatch.py' not in json.dumps(hooks):
+        return None
+    if 'events' in hooks:
+        if hooks.get('enabled') is not True:
+            return ['hooks désactivés chez le moteur (enabled: true attendu)']
+        evenements = hooks['events']
+    else:
+        evenements = hooks
+    if not isinstance(evenements, dict):
+        return None
+    return [evenement + " : événement retiré de l'enregistrement du moteur"
+            for evenement in EVENEMENTS_ATTENDUS if evenement not in evenements]
+
+
+def registration_problems():
+    """Premier enregistrement moteur qui référence ce harnais, None sinon.
+
+    Un moteur retiré du harnais n'alerte plus : sans aucun hook actif, rien
+    ne peut s'exécuter pour le constater."""
+    candidats = ([os.environ['AGENT_MOTEUR_HOOKS']] if os.environ.get('AGENT_MOTEUR_HOOKS')
+                 else [str(Path.home() / '.zcode' / 'cli' / 'config.json'),
+                       str(Path.home() / '.claude' / 'settings.json'),
+                       str(Path.home() / '.grok' / 'hooks' / 'agents.json')])
+    for chemin in candidats:
+        problemes = problems_registration(chemin)
+        if problemes is not None:
+            return problemes
+    return None
+
+
+def harnais_degrade(state, problemes):
+    """Pose ou lève le drapeau de dégradation selon l'enregistrement moteur."""
+    if problemes:
+        (state / 'harnais-degrade').write_text('\n'.join(problemes), encoding='utf-8')
+        return 'Harnais dégradé : ' + '\n'.join(problemes) \
+               + '. Contrôles moteur absents, ne pas annoncer de validation.'
+    (state / 'harnais-degrade').unlink(missing_ok=True)
+    return None
 
 
 def protected(root):
@@ -288,9 +405,33 @@ def main():
     identity = data.get('session_id')
     state = etat_session(identity)
     if event == 'PreToolUse':
+        # Fail-closed : une marque posée avant le garde et levée après. Un hook
+        # tué en plein verdict laisse la marque, et le Stop du tour bloque.
+        if state is not None:
+            state.mkdir(parents=True, exist_ok=True, mode=0o700)
+            (state / 'garde-encours').touch()
         from garde import verdict
         sortie = verdict(data.get('tool_name'), data['tool_input'], data['cwd'])
+        if state is not None:
+            (state / 'garde-encours').unlink(missing_ok=True)
         decision = sortie.get('hookSpecificOutput', {}).get('permissionDecision')
+        if state is not None and data.get('tool_name') in OUTILS_MODIFIANTS and decision is None:
+            vise = next((data['tool_input'][cle] for cle in ('file_path', 'path', 'target_file')
+                         if isinstance(data['tool_input'].get(cle), str)), None)
+            chemin = Path(os.path.abspath(os.path.join(data['cwd'], vise))) if vise else None
+            marque = marked_root(chemin.parent) if chemin is not None else None
+            if marque is None and chemin is not None:
+                base = Path(data['cwd'])
+                if chemin.is_relative_to(base) and not protected(base) and not conteneur_de_projets(base):
+                    marque = base
+            if marque is not None:
+                autre = autre_ecrivain(state, marque.resolve(), identity)
+                if autre:
+                    sortie = {'hookSpecificOutput': {
+                        'hookEventName': 'PreToolUse', 'permissionDecision': 'deny',
+                        'permissionDecisionReason': 'Dépôt déjà en écriture par la session ' + autre
+                        + ' : un seul écrivain (AGENTS.md). Faire écrire la session propriétaire.'}}
+                    decision = 'deny'
         # deny et ask jettent le contexte (refus du hook, ou refus au prompt).
         if sous_grok() and state is not None and decision not in ('deny', 'ask', 'defer'):
             state.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -327,9 +468,19 @@ def main():
             purge_etats(state_root, state)
             if not jq:
                 contexts.append(JQ_MISSING)
+            alerte = harnais_degrade(state, registration_problems())
+            if alerte:
+                contexts.append(alerte)
         elif event == 'UserPromptSubmit':
             (state / 'turn-start').touch()
             roots_file.unlink(missing_ok=True)
+            marqueur = state / 'garde-encours'
+            if marqueur.is_file():
+                marqueur.unlink()
+                contexts.append(GARDE_INTERROMPUE)
+            alerte = harnais_degrade(state, registration_problems())
+            if alerte:
+                contexts.append(alerte)
             if ko_file.is_file() and not sous_grok():
                 contexts.append('Contrôles restés KO au tour précédent, à signaler sans annoncer de validation :\n'
                                 + ko_file.read_text()[:1500])
@@ -365,12 +516,34 @@ def main():
                     continue
                 where = root or path.parent
                 item = dict(data, cwd=str(where), tool_input={'file_path': str(path)})
+                avant_reasons, avant_contexts = len(reasons), len(contexts)
                 # Le formateur du projet passe avant les contrôles.
                 collect(run('gate-format-post', item, env, deadline=deadline))
                 if script_shell(path):
                     collect(run('gate-shell-post', item, env, deadline=deadline))
+                echecs = reasons[avant_reasons:] + [c for c in contexts[avant_contexts:] if 'KO' in c]
                 collect(run('gate-cyber-post', item, env, deadline=deadline))
+                note_qualite(state, path, echecs)
+                if root is not None:
+                    ecrit_vivant(state, root.resolve(), identity)
         elif fin and data.get('reason') == 'end_turn':
+            degrade = state / 'harnais-degrade'
+            if degrade.is_file():
+                reasons.append('Harnais dégradé : ' + degrade.read_text(encoding='utf-8')[:1500]
+                               + '. Rétablir les hooks du moteur avant de clore le tour.')
+            marqueur = state / 'garde-encours'
+            if marqueur.is_file():
+                marqueur.unlink()
+                reasons.append(GARDE_INTERROMPUE)
+            try:
+                qualite = json.loads((state / 'qualite-ko.json').read_text(encoding='utf-8'))
+            except (OSError, json.JSONDecodeError):
+                qualite = {}
+            if qualite:
+                reasons.append('Contrôles de qualité restés KO — corriger puis rééditer chaque fichier '
+                               'pour relancer son contrôle :\n'
+                               + '\n'.join(f'{chemin} : {message}'
+                                           for chemin, message in list(qualite.items())[:8]))
             # Un dossier de projets (Bureau) n'est pas un projet : seuls les projets écrits comptent.
             targets = ([] if conteneur_de_projets(cwd) else [cwd]) + [Path(line) for line in read_lines(roots_file)]
             deadline = time.monotonic() + STOP_BUDGET
@@ -390,7 +563,10 @@ def main():
                     for name in STOP:
                         collect(run(name, item, env, 120, deadline))
             changes = config_changes(state / 'turn-start')
-            if changes:
+            if changes is None:
+                reasons.append('git status de la config a échoué : état invérifiable, la validation '
+                               'de config ne peut pas être annoncée.')
+            elif changes:
                 # Le verifier ne lance que les contrôles que ces fichiers peuvent casser.
                 item = dict(data, cwd=str(CONFIG), config_changes=changes)
                 collect(run('gate-config-stop', item, env, CONFIG_GATE_TIMEOUT, deadline))
@@ -405,6 +581,7 @@ def main():
                     ko_file.unlink(missing_ok=True)
         elif event == 'SessionEnd':
             (state / 'ended').touch()
+            libere_verrous(state, identity)
     result = {}
     if contexts:
         result['hookSpecificOutput'] = {'hookEventName': event, 'additionalContext': '\n'.join(contexts)}

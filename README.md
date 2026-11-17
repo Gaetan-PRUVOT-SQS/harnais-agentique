@@ -88,21 +88,52 @@ empreinte).
 
 Énoncées franchement :
 
-- **Fail-open sur les hooks.** La garantie tient à l'exécution du hook.
-  Si le moteur ne déclenche pas l'événement, ou si le contrôle dépasse
-  son délai (garde 10 s, Stop 400 s), le contrôle disparaît et l'action
-  passe. Un moteur sans mécanisme de hooks n'est pas protégé du tout.
+- **Fail-open à l'appel, fail-closed au tour.** La garantie tient à
+  l'exécution du hook ; deux cas se distinguent. La *dérive
+  d'enregistrement* (hook désactivé, commande modifiée, délai
+  raccourci, événement retiré) est rattrapée deux fois : par le
+  verifier, qui contrôle l'enregistrement exact de chaque événement,
+  et par `dispatch.py`, qui relit l'enregistrement du moteur à chaque
+  tour et tient le `Stop` tant qu'un événement attendu manque. Un hook
+  tué *à l'exécution* — dépassement de délai (garde 10 s, Stop 400 s),
+  crash, événement jamais déclenché — ne peut pas empêcher l'appel qui
+  l'a déclenché (après expiration, c'est le moteur, pas le harnais,
+  qui décide d'exécuter l'outil) : le garde pose une marque avant son
+  verdict et la lève après ; la marque survit au hook tué et le `Stop`
+  du tour bloque jusqu'à reprise de l'action sous contrôle. Restent
+  hors de portée : l'appel déjà exécuté, et la désactivation totale
+  (aucun hook actif — seul un passage du verifier la relève). Un
+  moteur sans mécanisme de hooks n'est pas protégé du tout.
 - **Une couche, pas deux.** Côté moteurs qui exposent une liste de
-  permissions (refus statiques de lecture de secrets), le garde s'y
-  ajoute. Côté moteurs qui ne l'exposent pas, le garde est l'unique
-  couche : un hook tué = un secret lisible.
+  permissions (refus statiques), le garde s'y ajoute et le refus tient
+  même hook tué. Côté moteurs qui ne l'exposent pas, le garde est
+  l'unique couche — en faire une condition d'installation contrôlée
+  par le verifier reste un chantier ouvert.
+- **Le plan de contrôle se protège, sans en être hors de portée.** Les
+  marqueurs de désactivation (`disable-*`) ne peuvent plus être créés,
+  modifiés ni supprimés par l'agent (refus du garde, y compris par
+  redirection shell) ; le verifier liste ceux qui existent et l'auteur
+  les pose à la main. Le reste du harnais reste accessible en écriture
+  à l'agent — c'est voulu, il maintient sa config sur demande — : la
+  séparation complète du contrôleur et du contrôlé demanderait un
+  compte dédié (chantier ouvert).
+- **La lecture seule des sous-agents est technique, pas déclarative.**
+  Les 5 agents n'ont plus de shell : Read, Grep, Glob (web pour le
+  chercheur), liste imposée par le moteur ; le verifier refuse Bash
+  dans un agent. Ce que les agents perdent (git log, find), le brief
+  du fil appelant doit le fournir.
+- **Les suites de test exécutent du code de projet sous le compte de
+  l'utilisateur.** Leur environnement est épuré (plus de variables
+  secrètes ni de sockets d'agents d'authentification), mais il n'y a
+  ni sandbox, ni compte dédié, ni limitation réseau (chantier ouvert).
 - **Le Stop ne couvre que le lanceur reconnu.** Un projet sans suite de
   tests reconnue n'a pas de gate de régressions ; l'oracle ne mord que
   si le projet en fournit un.
 - **Gates typées par langage.** Format et lint ciblent shell et Python
   (shfmt, shellcheck, checkbashisms, ruff) ; le C dépend des règles du
-  projet (`-Wall -Wextra -Werror`) ; les autres langages ne passent que
-  le scan cyber.
+  projet (`-Wall -Wextra -Werror`) ; les secrets du projet passent par
+  gitleaks au Stop ; le SAST complet par projet (semgrep par langage)
+  reste un chantier ouvert.
 - **Le push normal est contractuel.** Force-push est confirmé par le
   garde ; un push ordinaire n'est pas intercepté mécaniquement — il
   repose sur la règle « jamais de push sans demande ».
@@ -114,11 +145,18 @@ empreinte).
   règles chargées à chaque session, un contrôle PreToolUse sur chaque
   appel d'outil.
 - **Dérive entre copies.** Un moteur par copie protège l'écriture
-  simultanée mais crée des copies qui divergent si on ne synchronise
-  pas par git.
+  simultanée, renforcée par un verrou d'écrivain par dépôt (refus
+  d'écrire sur un dépôt déjà tenu par une autre session, expiration
+  6 h) ; les copies divergent si on ne synchronise pas par git.
 - **Périmètre moteur.** Le vocabulaire d'événements, les matchers
   (regex) et les délais dépendent du moteur ; l'adaptation est écrite
   dans la copie, pas dans le harnais commun.
+
+**Chantiers ouverts** (assumés, non implémentés) : sandbox complète
+des suites de test (compte dédié, réseau), SAST par projet, permissions
+natives du moteur comme condition d'installation, provenance amont des
+skills par commit (le lock vérifie déjà l'empreinte locale de chaque
+skill importé), ouverture de fichiers sans suivi des liens côté moteur.
 
 ## Modèle de menace
 
@@ -135,13 +173,16 @@ le moteur : contre lui, le harnais n'offre rien (voir hors modèle).
 
 | Risque | Interception | Ce qui reste non couvert |
 |---|---|---|
-| Lecture/exfiltration d'un secret | garde `deny` (chemins + motifs d'interpréteur : `python -c open(".env")`…) ; gitleaks sur ce qui est écrit | un secret déjà recopié hors motifs ; hook tué (fail-open) |
+| Lecture/exfiltration d'un secret | garde `deny` : chemins bruts **et résolus** (liens symboliques), motifs d'interpréteur (`python -c open(".env")`…), catalogue étendu (kube, docker, gcloud, npmrc, pypirc, `.pem` privées) ; gitleaks sur ce qui est écrit | un secret déjà recopié hors motifs ; l'appel exécuté avant un hook tué (la marque d'interruption tient le tour) |
 | Commande irréversible (`rm -rf`, `dd`, firmware) | garde `ask`/`deny` avant exécution | rien, si le hook tourne |
 | Perte de travail local (`git clean`, `reset --hard`) | garde de dépôt : travail non commité détecté | commits déjà poussés de force (confirmé seulement) |
-| Secret dans le livrable | gitleaks + semgrep (PostToolUse et Stop) | faux négatifs des scanners |
-| Tests verts annoncés sans preuve | gate Stop relance la suite ; tests sans assertion bloquants ; oracle teste une implémentation fausse | suites non reconnues par le lanceur |
-| Injection par contenu lu | sous-agents lecture seule, revérification par le fil, secrets refusés même « demandés » | instruction bénigne exécutée sans déclencheur (aucune sandbox) |
-| Deux moteurs sur un dépôt | un moteur par copie + `AGENT_CONFIG_ROOT` ; divergence détectée par le verifier | désynchronisation si pas de git pull |
+| Désactivation silencieuse d'un contrôle | marqueurs `disable-*` refusés au garde (création, modification, suppression, redirections) et listés par le verifier ; événement retiré du moteur détecté à chaque tour, `Stop` tenu | désactivation totale : aucun hook ne peut s'exécuter pour le constater |
+| Sous-agent qui écrit malgré « lecture seule » | plus de shell dans les agents (liste d'outils imposée par le moteur) ; le verifier refuse Bash dans un agent | le fil appelant reste écrivain unique, ses propres appels shell restent du ressort du garde |
+| Code de projet exécuté par l'automatisation (suites de test) | environnement épuré : variables secrètes masquées, sockets des agents d'authentification retirées | pas de sandbox : accès disque et réseau du compte utilisateur |
+| Secret dans le livrable | gitleaks + semgrep sur le harnais (PostToolUse et Stop) ; gitleaks sur les projets modifiés au Stop | faux négatifs des scanners |
+| Tests verts annoncés sans preuve | gate Stop relance la suite ; tests sans assertion bloquants ; oracle teste une implémentation fausse ; shellcheck/format tiennent le Stop jusqu'à correction | suites non reconnues par le lanceur |
+| Injection par contenu lu | sous-agents sans shell, revérification par le fil, secrets refusés même « demandés » | instruction bénigne exécutée sans déclencheur (aucune sandbox) |
+| Deux moteurs ou sessions sur un dépôt | un moteur par copie + `AGENT_CONFIG_ROOT` ; verrou d'écrivain par dépôt (refus avant écriture, expiration 6 h) ; divergence détectée par le verifier | écritures par shell brut (le verrou protège les outils d'écriture) ; désynchronisation sans git pull |
 
 **Hors du modèle** : compromission du moteur ou de l'OS, exfiltration
 réseau par un processus non passé par les hooks, attaques physiques,
@@ -207,7 +248,7 @@ moteur au format Claude Code :
           "timeout": 10 }] }
       ],
       "PostToolUse": [
-        { "matcher": "Write|Edit",
+        { "matcher": "Write|Edit|MultiEdit|NotebookEdit|ApplyPatch",
           "hooks": [{ "type": "command",
             "command": "AGENT_CONFIG_ROOT=/home/moi/.agents python3 -E -s /home/moi/.agents/hooks/dispatch.py PostToolUse",
             "timeout": 150 }] }
@@ -237,8 +278,12 @@ retirés ou sautés si l'outil visé est absent).
 Trois étages, tous rejouables :
 
 ```sh
-# 1. La suite du harnais (187 tests) : structure, garde, gates, verifier.
+# 1. La suite du harnais (189 tests) : structure, garde, gates, verifier.
 python3 -m pytest tests/
+
+# 1 bis. La suite des hooks (105 tests) : garde, gates, fail-closed,
+# verrou d'écrivain, marqueurs, liens symboliques, environnement épuré.
+python3 -m pytest hooks/verify.py
 
 # 2. Le verifier complet.
 ./verifier                 # ou --rapide (~40 s)

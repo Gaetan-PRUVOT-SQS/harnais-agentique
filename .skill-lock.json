@@ -18,7 +18,8 @@
       "skillFolderHash": "e14e276241805c97dbcfe40dcbea1a3035269cc7293cac4b1832dda41a835e60",
       "pluginName": "postgres-best-practices",
       "installedAt": "2026-06-27T17:33:48.048Z",
-      "updatedAt": "2026-09-24T13:38:26.629Z"
+      "updatedAt": "2026-09-24T13:38:26.629Z",
+      "harnaisHash": "01abfadecf914e3a650cce5a7d4975e3532f30a1"
     },
     "brainstorming": {
       "source": "obra/superpowers",
@@ -27,7 +28,8 @@
       "skillPath": "skills/brainstorming/SKILL.md",
       "skillFolderHash": "27e73ef7b83994e913cba378081b587412d2e9cb",
       "installedAt": "2026-06-27T17:35:24.773Z",
-      "updatedAt": "2026-06-27T17:35:24.773Z"
+      "updatedAt": "2026-06-27T17:35:24.773Z",
+      "harnaisHash": "338b19edcb4f170c33797a7803ba9f98e13cf762"
     },
     "tdd": {
       "source": "carlitose/agent-skills",
@@ -36,7 +38,8 @@
       "skillPath": "tdd/SKILL.md",
       "skillFolderHash": "e97b0f55182d4af8f78c8358681a9a7d14f6ae73",
       "installedAt": "2026-06-27T17:38:07.044Z",
-      "updatedAt": "2026-09-24T14:03:05.947Z"
+      "updatedAt": "2026-09-24T14:03:05.947Z",
+      "harnaisHash": "e50591d77005fa6866c6db9899af2867f964b672"
     },
     "github-actions-docs": {
       "source": "xixu-me/skills",
@@ -45,7 +48,8 @@
       "skillPath": "skills/github-actions-docs/SKILL.md",
       "skillFolderHash": "518c85da555f91c346813aa5bb3cc62f9db8bfb3",
       "installedAt": "2026-06-27T17:38:45.556Z",
-      "updatedAt": "2026-06-27T17:38:45.556Z"
+      "updatedAt": "2026-06-27T17:38:45.556Z",
+      "harnaisHash": "eb94a069f7892ba3b553b811588d443fe43b33c8"
     },
     "web-design-guidelines": {
       "source": "vercel-labs/agent-skills",
@@ -54,7 +58,8 @@
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "skillFolderHash": "3116f3e62dbd02b44a598b1aa690d2a8938e8f89",
       "installedAt": "2026-09-21T15:22:49.905Z",
-      "updatedAt": "2026-09-21T15:22:49.905Z"
+      "updatedAt": "2026-09-21T15:22:49.905Z",
+      "harnaisHash": "1b3886479a3719fa1249007b459bc49a2bb17f30"
     },
     "code-review-and-quality": {
       "source": "addyosmani/agent-skills",
@@ -90,7 +95,8 @@
       "skillPath": "plugins/code-security-skills/skills/api-security-review/SKILL.md",
       "skillFolderHash": "d5010d2bd84c804111fe86b066507e742c1b4dd56eb350ad8b538226de9c9399",
       "installedAt": "2026-09-21T15:22:56.907Z",
-      "updatedAt": "2026-09-24T13:38:13.506Z"
+      "updatedAt": "2026-09-24T13:38:13.506Z",
+      "harnaisHash": "62cf90470e24b13ac819a5469b79b9a331469e2b"
     },
     "sca-audit": {
       "source": "owasp/secure-agent-playbook",
@@ -99,7 +105,8 @@
       "skillPath": "plugins/code-security-skills/skills/sca-audit/SKILL.md",
       "skillFolderHash": "bd125716d389d6d7f5ea41cef60e0c11089e7ffaf05631b10d4a9a7dcc055331",
       "installedAt": "2026-09-21T15:22:56.965Z",
-      "updatedAt": "2026-09-24T13:38:13.510Z"
+      "updatedAt": "2026-09-24T13:38:13.510Z",
+      "harnaisHash": "6a55cd9ef6f6c20c993268e84a3b069b689a9975"
     },
     "secrets-scan": {
       "source": "owasp/secure-agent-playbook",
@@ -108,7 +115,8 @@
       "skillPath": "plugins/code-security-skills/skills/secrets-scan/SKILL.md",
       "skillFolderHash": "21facc3ba1ce9fe0b541178e039caf4870a6fc3908c3a12d1707fe4da652f725",
       "installedAt": "2026-09-21T15:22:56.967Z",
-      "updatedAt": "2026-09-24T13:38:13.510Z"
+      "updatedAt": "2026-09-24T13:38:13.510Z",
+      "harnaisHash": "a86710c45d8571ea6ccd727f0cf7ae0d913affca"
     },
     "web-security-review": {
       "source": "owasp/secure-agent-playbook",
@@ -126,7 +134,8 @@
       "skillPath": "plugins/code-security-skills/skills/mobile-code-review/SKILL.md",
       "skillFolderHash": "fd772d1b4886a99bec2dc77712f03985794f71625da109039dad53395eaffbcc",
       "installedAt": "2026-09-24T13:38:13.508Z",
-      "updatedAt": "2026-09-24T13:38:13.508Z"
+      "updatedAt": "2026-09-24T13:38:13.508Z",
+      "harnaisHash": "f684a32fa8b458fa04be5d22a3193dedaef37a31"
     },
     "check-npm": {
       "source": "grafana/skills",
@@ -136,7 +145,8 @@
       "skillFolderHash": "82f9504711121df9817d94c2bc0b668e53cc866f6acd62e82f6a441d9e83b8b2",
       "pluginName": "grafana-plugins",
       "installedAt": "2026-09-24T13:38:17.312Z",
-      "updatedAt": "2026-09-24T13:38:17.312Z"
+      "updatedAt": "2026-09-24T13:38:17.312Z",
+      "harnaisHash": "81dd37d3bae6d7c14c4ca3b95dad8f8fda9c2289"
     },
     "postgres": {
       "source": "timescale/pg-aiguide",
@@ -145,7 +155,8 @@
       "skillPath": "skills/postgres/SKILL.md",
       "skillFolderHash": "e4b4d55eca976420673c6bba21bf6cc3cd377a7a6104c3221538641ce7704e9a",
       "installedAt": "2026-09-24T13:38:31.240Z",
-      "updatedAt": "2026-09-24T13:38:36.402Z"
+      "updatedAt": "2026-09-24T13:38:36.402Z",
+      "harnaisHash": "00f1218b9c2a09306a9959239984b721d70631b8"
     },
     "design-postgis-tables": {
       "source": "timescale/pg-aiguide",
@@ -235,7 +246,8 @@
       "skillPath": "skills/ci-cd-and-automation/SKILL.md",
       "skillFolderHash": "578b098a7d2352ccdac8b8abdc40eb6803538e81cf8382f138da6188a655087c",
       "installedAt": "2026-09-24T13:38:47.424Z",
-      "updatedAt": "2026-09-24T13:38:47.424Z"
+      "updatedAt": "2026-09-24T13:38:47.424Z",
+      "harnaisHash": "591d6a2fee2db82441bd06fa85d998b19168332b"
     },
     "code-simplification": {
       "source": "carlitose/agent-skills",
@@ -271,7 +283,8 @@
       "skillPath": "skills/planning-and-task-breakdown/SKILL.md",
       "skillFolderHash": "0dc14a1402cdabd376f2d81d2225fcb4a18ee63d58b945ff83affeb024285b8f",
       "installedAt": "2026-09-24T13:38:47.487Z",
-      "updatedAt": "2026-09-24T13:38:47.487Z"
+      "updatedAt": "2026-09-24T13:38:47.487Z",
+      "harnaisHash": "1eaa038806b2645cd7679c72d27eac48d018d7bc"
     },
     "source-driven-development": {
       "source": "addyosmani/agent-skills",
@@ -298,7 +311,8 @@
       "skillPath": "stdlib/devops/docker-expert/SKILL.md",
       "skillFolderHash": "8b480c2fa006785ffd335a1654caf1f57b686e2e6f3484e4e2fc6a40c631b5c7",
       "installedAt": "2026-09-24T13:40:12.627Z",
-      "updatedAt": "2026-09-24T13:40:12.627Z"
+      "updatedAt": "2026-09-24T13:40:12.627Z",
+      "harnaisHash": "1cb33b79eadca9239618b511046f02302d405bb8"
     },
     "django-expert": {
       "source": "personamanagmentlayer/pcl",
@@ -307,7 +321,8 @@
       "skillPath": "stdlib/frameworks/django-expert/SKILL.md",
       "skillFolderHash": "794f359b801a02612933ccc481a8144450835f3fd654dfcaddd5bf3a1721f4e7",
       "installedAt": "2026-09-24T13:40:12.650Z",
-      "updatedAt": "2026-09-24T13:40:12.650Z"
+      "updatedAt": "2026-09-24T13:40:12.650Z",
+      "harnaisHash": "af3730e13ba070e4b9f6aaadf5984c6da8a647d1"
     },
     "nodejs-expert": {
       "source": "personamanagmentlayer/pcl",
@@ -316,7 +331,8 @@
       "skillPath": "stdlib/languages/nodejs-expert/SKILL.md",
       "skillFolderHash": "ac45839c1c433ec34f1f9ffb168981ef2eb781b2d4e0e859ad1345fe06fa3dc3",
       "installedAt": "2026-09-24T13:40:12.659Z",
-      "updatedAt": "2026-09-24T13:40:12.659Z"
+      "updatedAt": "2026-09-24T13:40:12.659Z",
+      "harnaisHash": "c7480b30a69b824508f6a1ffd05ddc0a35d0bc0c"
     },
     "wordpress-router": {
       "source": "automattic/agent-skills",
@@ -325,7 +341,8 @@
       "skillPath": "skills/wordpress-router/SKILL.md",
       "skillFolderHash": "7e1ab6a500f78ecbadde3b9f8277370f7f5d8bc01c014c7bb94f6d5948f2d109",
       "installedAt": "2026-09-24T13:53:12.275Z",
-      "updatedAt": "2026-09-24T13:53:15.128Z"
+      "updatedAt": "2026-09-24T13:53:15.128Z",
+      "harnaisHash": "b8382ae6f313533aa08299783b1ed76f2d382ad7"
     },
     "wp-block-development": {
       "source": "automattic/agent-skills",
@@ -334,7 +351,8 @@
       "skillPath": "skills/wp-block-development/SKILL.md",
       "skillFolderHash": "663b1974050e443c3888e714a7204768a45459d07ad0d8102a2f2eca56bb8f9d",
       "installedAt": "2026-09-24T13:53:12.286Z",
-      "updatedAt": "2026-09-24T13:53:15.135Z"
+      "updatedAt": "2026-09-24T13:53:15.135Z",
+      "harnaisHash": "1a903125836ab52e33bbc90b23bf3f883fdcdb3e"
     },
     "wp-block-themes": {
       "source": "automattic/agent-skills",
@@ -343,7 +361,8 @@
       "skillPath": "skills/wp-block-themes/SKILL.md",
       "skillFolderHash": "ec31dc2e2a224299225fed1be6f6a94085b3fbfdcf57f22d673949063abf24bc",
       "installedAt": "2026-09-24T13:53:12.288Z",
-      "updatedAt": "2026-09-24T13:53:15.138Z"
+      "updatedAt": "2026-09-24T13:53:15.138Z",
+      "harnaisHash": "d71547c771082f078f75e94b1dd3a2b7aace9bd7"
     },
     "wp-env": {
       "source": "WordPress/agent-skills",
@@ -352,7 +371,8 @@
       "skillPath": "skills/wp-env/SKILL.md",
       "skillFolderHash": "b8cc24d285c0bde15222b37dc2eeb2d427a5b0f2f766ed2333d2ee581f8c6c81",
       "installedAt": "2026-09-24T13:53:12.291Z",
-      "updatedAt": "2026-09-24T13:53:12.291Z"
+      "updatedAt": "2026-09-24T13:53:12.291Z",
+      "harnaisHash": "683ac884e47b4d8c194694728b4262079b76c59b"
     },
     "wp-interactivity-api": {
       "source": "automattic/agent-skills",
@@ -361,7 +381,8 @@
       "skillPath": "skills/wp-interactivity-api/SKILL.md",
       "skillFolderHash": "50ffcda715b63dfb0f9ca2a2543b9a070fe68f7da89b321295902426e918966c",
       "installedAt": "2026-09-24T13:53:12.295Z",
-      "updatedAt": "2026-09-24T13:53:15.140Z"
+      "updatedAt": "2026-09-24T13:53:15.140Z",
+      "harnaisHash": "9d9eff2c1b7607b3ca89df6eb466e1b5afb929ab"
     },
     "wp-patterns": {
       "source": "WordPress/agent-skills",
@@ -370,7 +391,8 @@
       "skillPath": "skills/wp-patterns/SKILL.md",
       "skillFolderHash": "8214f7ea3a4f3be733d0ba45ae1ed0993c508f504798dc26b34d60550a1dfb89",
       "installedAt": "2026-09-24T13:53:12.297Z",
-      "updatedAt": "2026-09-24T13:53:12.297Z"
+      "updatedAt": "2026-09-24T13:53:12.297Z",
+      "harnaisHash": "376d05ada07160b153e1c3d81354c42a46e9346f"
     },
     "wp-performance": {
       "source": "automattic/agent-skills",
@@ -379,7 +401,8 @@
       "skillPath": "skills/wp-performance/SKILL.md",
       "skillFolderHash": "580d879ffecd41835e297cbf222443bff6bebf7aaa0efb46852d743249330f9b",
       "installedAt": "2026-09-24T13:53:12.300Z",
-      "updatedAt": "2026-09-24T13:53:15.143Z"
+      "updatedAt": "2026-09-24T13:53:15.143Z",
+      "harnaisHash": "5d03dc78432b3053de6b579b3207b36c27307bd5"
     },
     "wp-phpstan": {
       "source": "automattic/agent-skills",
@@ -388,7 +411,8 @@
       "skillPath": "skills/wp-phpstan/SKILL.md",
       "skillFolderHash": "66fc5a465493bfa6993459d56d0781f5bfed31dbf0d98f2d538cd5400a10cf65",
       "installedAt": "2026-09-24T13:53:12.303Z",
-      "updatedAt": "2026-09-24T13:53:15.146Z"
+      "updatedAt": "2026-09-24T13:53:15.146Z",
+      "harnaisHash": "d506aef3363232923d5133c92814a9bf882ff65a"
     },
     "wp-playground": {
       "source": "automattic/agent-skills",
@@ -397,7 +421,8 @@
       "skillPath": "skills/wp-playground/SKILL.md",
       "skillFolderHash": "1125d6cd0d9097ae478d4b067cf02f2b2e5f0c6690209aa05c97a3e13dbb8921",
       "installedAt": "2026-09-24T13:53:12.305Z",
-      "updatedAt": "2026-09-24T13:53:15.149Z"
+      "updatedAt": "2026-09-24T13:53:15.149Z",
+      "harnaisHash": "81f145743f796a42a53a5dd918016b929642b13e"
     },
     "wp-plugin-development": {
       "source": "automattic/agent-skills",
@@ -406,7 +431,8 @@
       "skillPath": "skills/wp-plugin-development/SKILL.md",
       "skillFolderHash": "3c13a9d2e6e346c9f933918fdf4d191cdba9f2cfe24f87cbcd763d090bbd8014",
       "installedAt": "2026-09-24T13:53:12.307Z",
-      "updatedAt": "2026-09-24T13:53:15.152Z"
+      "updatedAt": "2026-09-24T13:53:15.152Z",
+      "harnaisHash": "b74ba63d58ba819f657a3fa5d0bf8c377c929592"
     },
     "wp-plugin-directory-guidelines": {
       "source": "WordPress/agent-skills",
@@ -415,7 +441,8 @@
       "skillPath": "skills/wp-plugin-directory-guidelines/SKILL.md",
       "skillFolderHash": "19c6227f6bae3827718f1091298cded0474ebedfcc5e5b1013a8650620a259fe",
       "installedAt": "2026-09-24T13:53:12.309Z",
-      "updatedAt": "2026-09-24T13:53:12.309Z"
+      "updatedAt": "2026-09-24T13:53:12.309Z",
+      "harnaisHash": "a3309a8189a87f3e9d71508349885a4e5978388a"
     },
     "wp-project-triage": {
       "source": "automattic/agent-skills",
@@ -424,7 +451,8 @@
       "skillPath": "skills/wp-project-triage/SKILL.md",
       "skillFolderHash": "8df079d09f518217580c8eae57d6edf1827b6a8aabe7d6ec5858ca07cdd81e4d",
       "installedAt": "2026-09-24T13:53:12.311Z",
-      "updatedAt": "2026-09-24T13:53:15.155Z"
+      "updatedAt": "2026-09-24T13:53:15.155Z",
+      "harnaisHash": "422ff54337eedd60b533ca741d1961494db7473f"
     },
     "wp-rest-api": {
       "source": "automattic/agent-skills",
@@ -433,7 +461,8 @@
       "skillPath": "skills/wp-rest-api/SKILL.md",
       "skillFolderHash": "07d98b54fb41b6dccb0bae9f1a5b0d786776e9438ff5eba17d9dec7db89e5104",
       "installedAt": "2026-09-24T13:53:12.314Z",
-      "updatedAt": "2026-09-24T13:53:15.158Z"
+      "updatedAt": "2026-09-24T13:53:15.158Z",
+      "harnaisHash": "be3fa5fd63c35a26031332c7384f42857728a140"
     },
     "wp-wpcli-and-ops": {
       "source": "automattic/agent-skills",
@@ -442,7 +471,8 @@
       "skillPath": "skills/wp-wpcli-and-ops/SKILL.md",
       "skillFolderHash": "b04471067f1577112c37870ee564cd06f0787487dc764edf4229f73e3b5981ca",
       "installedAt": "2026-09-24T13:53:12.316Z",
-      "updatedAt": "2026-09-24T13:53:15.161Z"
+      "updatedAt": "2026-09-24T13:53:15.161Z",
+      "harnaisHash": "2ed16a679688060a9f00d2bb7e2eb6916114f7de"
     },
     "skill-creator": {
       "source": "aws-samples/sample-apex-skills",
@@ -460,7 +490,8 @@
       "skillPath": "plugins/wcag/skills/wcag/SKILL.md",
       "skillFolderHash": "8bab84ea162693822dd64f076420dfd9073d77a6c7a02baa36eaf94fb5ddc055",
       "installedAt": "2026-09-24T13:55:03.233Z",
-      "updatedAt": "2026-09-24T13:55:03.233Z"
+      "updatedAt": "2026-09-24T13:55:03.233Z",
+      "harnaisHash": "8eb2a87d531e8c3a565abd4030107c9f532eab0b"
     },
     "web-perf": {
       "source": "cloudflare/skills",
@@ -469,7 +500,8 @@
       "skillPath": "skills/web-perf/SKILL.md",
       "skillFolderHash": "72d0dd9706147e19bf3c1a36fdc02570f77685541d89d901a3a2f570824ba3cb",
       "installedAt": "2026-09-24T13:56:55.138Z",
-      "updatedAt": "2026-09-24T13:56:55.138Z"
+      "updatedAt": "2026-09-24T13:56:55.138Z",
+      "harnaisHash": "28d4eea87a1d1937b68525576e7d97e385e4ce79"
     },
     "database-designer": {
       "source": "borghei/claude-skills",
@@ -487,7 +519,8 @@
       "skillPath": "engineering/gcp-cloud-architect/SKILL.md",
       "skillFolderHash": "e9703ad3b8a3c430abdad488ee5e73f597da159c",
       "installedAt": "2026-09-24T14:02:41.308Z",
-      "updatedAt": "2026-09-24T14:02:41.308Z"
+      "updatedAt": "2026-09-24T14:02:41.308Z",
+      "harnaisHash": "990b90752dfae444b291fc0efb196d60c0090c73"
     },
     "code-review": {
       "source": "phuryn/pm-skills",
@@ -496,7 +529,8 @@
       "skillPath": "pm-ai-shipping/skills/code-review/SKILL.md",
       "skillFolderHash": "c4d99a84a9189e71148bc0e483285f93b4b2fcc5",
       "installedAt": "2026-09-24T14:03:05.820Z",
-      "updatedAt": "2026-09-24T14:04:28.598Z"
+      "updatedAt": "2026-09-24T14:04:28.598Z",
+      "harnaisHash": "3b5671d7931e6cf56017eff15f3c56b80f2aaef8"
     },
     "grilling": {
       "source": "carlitose/agent-skills",
@@ -505,7 +539,8 @@
       "skillPath": "grilling/SKILL.md",
       "skillFolderHash": "880574373958921ec05c50eabfdc838e873c28a4",
       "installedAt": "2026-09-24T14:03:05.891Z",
-      "updatedAt": "2026-09-24T14:03:05.891Z"
+      "updatedAt": "2026-09-24T14:03:05.891Z",
+      "harnaisHash": "3c31f5e73a7aaf9386ea908672ff566172dc32c6"
     },
     "peer-programming": {
       "source": "carlitose/agent-skills",
@@ -523,7 +558,8 @@
       "skillPath": "resolving-merge-conflicts/SKILL.md",
       "skillFolderHash": "ae17dccd65fc4e31b28550178f48083cddab4008",
       "installedAt": "2026-09-24T14:03:05.942Z",
-      "updatedAt": "2026-09-24T14:03:05.942Z"
+      "updatedAt": "2026-09-24T14:03:05.942Z",
+      "harnaisHash": "0487ed6d0b81be0743f8b98d8f3fb673beca6ed1"
     },
     "writing-for-agents": {
       "source": "carlitose/agent-skills",

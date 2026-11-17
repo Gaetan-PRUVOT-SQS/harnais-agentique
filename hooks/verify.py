@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import shutil
@@ -30,6 +31,18 @@ class Hooks(unittest.TestCase):
         self.config = self.path / 'config'
         self.env['AGENT_CONFIG_ROOT'] = str(self.config)
         self.env.pop('GROK_HOOK_EVENT', None)
+        # Enregistrement moteur sain et isolé : les tests ne dépendent pas
+        # des moteurs réellement posés sur le poste.
+        self.moteur = self.path / 'moteur.json'
+        self.env['AGENT_MOTEUR_HOOKS'] = str(self.moteur)
+        self.saine = {'hooks': {'enabled': True, 'events': {
+            evenement: [{'hooks': [{'type': 'command',
+                                    'command': 'python3 -E -s ' + str(HOOKS / 'dispatch.py')
+                                              + ' ' + evenement}]}]
+            for evenement in ('SessionStart', 'UserPromptSubmit', 'PreToolUse',
+                              'PostToolUse', 'Stop')}}}
+        self.moteur.write_text(json.dumps(self.saine), encoding='utf-8')
+        self.etat = self.path / 'state' / hashlib.sha256(b'nativetest-session').hexdigest()[:24]
 
     def call(self, event, **values):
         payload = {'session_id': 'test-session', 'cwd': str(self.project)}
@@ -1104,6 +1117,147 @@ class Hooks(unittest.TestCase):
         self.assertEqual(result['hookSpecificOutput']['permissionDecision'], 'ask')
         self.assertIn('git ne répond pas', result['hookSpecificOutput']['permissionDecisionReason'])
         self.assertLess(duree, 10)
+
+    def etat_prepare(self):
+        self.etat.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return self.etat
+
+    def test_garde_pose_et_leve_sa_marque(self):
+        self.call('PreToolUse', tool_name='Bash', tool_input={'command': 'ls'})
+        self.assertFalse((self.etat / 'garde-encours').exists())
+
+    def test_garde_interrompu_tient_le_stop(self):
+        self.etat_prepare().joinpath('garde-encours').touch()
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('garde a été interrompu', result['reason'])
+        self.assertFalse((self.etat / 'garde-encours').exists())
+
+    def test_garde_interrompu_signale_au_prompt(self):
+        self.etat_prepare().joinpath('garde-encours').touch()
+        result = self.call('UserPromptSubmit', prompt='continue')
+        self.assertIn('garde a été interrompu',
+                      result['hookSpecificOutput']['additionalContext'])
+        self.assertFalse((self.etat / 'garde-encours').exists())
+
+    def test_evenement_retire_tient_le_stop(self):
+        degradee = json.loads(json.dumps(self.saine))
+        del degradee['hooks']['events']['Stop']
+        self.moteur.write_text(json.dumps(degradee), encoding='utf-8')
+        result = self.call('SessionStart', source='startup')
+        self.assertIn('Harnais dégradé',
+                      result['hookSpecificOutput']['additionalContext'])
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('Harnais dégradé', result['reason'])
+
+    def test_hooks_desactives_degradent(self):
+        degradee = json.loads(json.dumps(self.saine))
+        degradee['hooks']['enabled'] = False
+        self.moteur.write_text(json.dumps(degradee), encoding='utf-8')
+        result = self.call('SessionStart', source='startup')
+        self.assertIn('désactivés', result['hookSpecificOutput']['additionalContext'])
+
+    def test_retablissement_leve_le_drapeau(self):
+        degradee = json.loads(json.dumps(self.saine))
+        del degradee['hooks']['events']['PreToolUse']
+        self.moteur.write_text(json.dumps(degradee), encoding='utf-8')
+        self.call('SessionStart', source='startup')
+        self.assertTrue((self.etat / 'harnais-degrade').exists())
+        self.moteur.write_text(json.dumps(self.saine), encoding='utf-8')
+        result = self.call('UserPromptSubmit', prompt='suite')
+        self.assertFalse((self.etat / 'harnais-degrade').exists())
+        self.assertNotIn('Harnais dégradé', json.dumps(result))
+
+    def test_sans_enregistrement_silencieux(self):
+        self.env['AGENT_MOTEUR_HOOKS'] = str(self.path / 'absent.json')
+        result = self.call('SessionStart', source='startup')
+        self.assertEqual(result, {})
+
+    def test_lien_symbolique_vers_secret_refuse(self):
+        (self.path / 'cible').mkdir()
+        (self.path / 'cible' / '.env').write_text('CLE=1\n')
+        (self.project / 'lien').symlink_to(self.path / 'cible' / '.env')
+        for entree in ({'file_path': str(self.project / 'lien')},
+                       {'command': 'cat ' + str(self.project / 'lien')}):
+            out = self.call('PreToolUse', tool_name='Read' if 'file_path' in entree else 'Bash',
+                            tool_input=entree)
+            self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny', entree)
+
+    def test_marqueur_disable_refuse_partout(self):
+        marqueur = self.config / 'hooks' / 'disable-tests-locaux'
+        marqueur.parent.mkdir(parents=True, exist_ok=True)
+        for outil, entree in (('Write', {'file_path': str(marqueur), 'content': ''}),
+                              ('Bash', {'command': 'touch ' + str(marqueur)}),
+                              ('Bash', {'command': 'echo x > ' + str(marqueur)}),
+                              ('Bash', {'command': 'rm -f ' + str(marqueur)})):
+            out = self.call('PreToolUse', tool_name=outil, tool_input=entree)
+            self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny', entree)
+
+    def test_catalogue_secrets_etendu(self):
+        for relatif in ('.kube/config', '.docker/config.json', '.npmrc', 'server-private.pem'):
+            chemin = self.path / relatif
+            chemin.parent.mkdir(parents=True, exist_ok=True)
+            chemin.write_text('x\n')
+            out = self.call('PreToolUse', tool_name='Read', tool_input={'file_path': str(chemin)})
+            self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny', relatif)
+
+    def test_shellcheck_ko_puis_repare_tient_le_stop(self):
+        script = self.project / 'bof.sh'
+        script.write_text('#!/bin/bash\ncat $1\n')
+        self.call('UserPromptSubmit', prompt='go')
+        self.call('PostToolUse', tool_input={'file_path': str(script)})
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('qualité', result['reason'])
+        script.write_text('#!/bin/bash\ncat "$1"\n')
+        self.call('PostToolUse', tool_input={'file_path': str(script)})
+        result = self.call('Stop', reason='end_turn')
+        self.assertNotIn('qualité', result.get('reason', ''))
+
+    def test_config_inverifiable_tient_le_stop(self):
+        (self.config / '.git').mkdir(parents=True)
+        self.call('UserPromptSubmit', prompt='go')
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('invérifiable', result['reason'])
+
+    def test_verrou_ecrivain_inter_sessions(self):
+        cible = self.project / 'a.txt'
+        cible.write_text('')
+        self.call('PostToolUse', tool_input={'file_path': str(cible)})
+        out = self.call('PreToolUse', tool_name='Write', session_id='autre-session',
+                        tool_input={'file_path': str(self.project / 'b.txt'), 'content': ''})
+        self.assertEqual(out['hookSpecificOutput']['permissionDecision'], 'deny')
+        self.assertIn('un seul écrivain', out['hookSpecificOutput']['permissionDecisionReason'])
+        out = self.call('PreToolUse', tool_name='Write',
+                        tool_input={'file_path': str(self.project / 'b.txt'), 'content': ''})
+        self.assertEqual(out, {})
+        self.etat.mkdir(parents=True, exist_ok=True, mode=0o700)
+        locks = self.path / 'state' / 'locks'
+        for fichier in locks.glob('*.json'):
+            texte = json.loads(fichier.read_text(encoding='utf-8'))
+            texte['ts'] -= 7 * 3600
+            fichier.write_text(json.dumps(texte), encoding='utf-8')
+        out = self.call('PreToolUse', tool_name='Write', session_id='autre-session',
+                        tool_input={'file_path': str(self.project / 'b.txt'), 'content': ''})
+        self.assertEqual(out, {})
+
+    def test_gitleaks_projet_tient_le_stop(self):
+        self.call('UserPromptSubmit', prompt='go')
+        jeton = 'ghp_' + '16C7e42F292c6912E7710c838347Ae178B4a'
+        (self.project / 'cle.js').write_text('tok = "' + jeton + '"\n')
+        result = self.call('Stop', reason='end_turn')
+        self.assertEqual(result['decision'], 'block')
+        self.assertIn('SECRETS KO', result['reason'])
+
+    def test_environnement_des_tests_epure(self):
+        code = ('import sys; sys.path.insert(0, ' + repr(str(HOOKS)) + '); from lanceur import environnement_epure; '
+                'env = environnement_epure({"GH_TOKEN": "x", "SSH_AUTH_SOCK": "y", "PATH": "/bin", "CI": "1"}); '
+                'assert "GH_TOKEN" not in env and "SSH_AUTH_SOCK" not in env and env["CI"] == "1", env')
+        process = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
+                                 timeout=30, check=False)
+        self.assertEqual(process.returncode, 0, process.stderr)
 
 
 def tearDownModule():
